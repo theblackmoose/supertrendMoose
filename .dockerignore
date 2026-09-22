@@ -1,0 +1,38 @@
+# .dockerignore - keeps the build context small and secrets out of the image.
+# The Dockerfile copies only app/, static/, requirements.txt and entrypoint.sh.
+
+# Git and editor files
+.git/
+.github/
+.gitignore
+.gitattributes
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Settings and secrets - never baked into an image
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Local data, caches and build leftovers
+*.db
+data/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.log
+*.tar.gz
+*.zip
+
+# Not needed at runtime
+tests/
+ntfy/
+docs/
+*.md
+LICENSE

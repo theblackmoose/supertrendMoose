@@ -1,0 +1,8 @@
+# Shell scripts MUST keep LF endings. A CRLF bootstrap.sh fails inside the
+# ntfy container with "no such file or directory" - a confusing error caused
+# purely by the trailing \r on the shebang line.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.env.example text eol=lf

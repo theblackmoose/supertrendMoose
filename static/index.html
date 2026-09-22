@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SupertrendMoose</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <h1>SupertrendMoose</h1>
+  <div class="bar-meta">
+    <span id="lastScan">checking status</span>
+    <button id="scanBtn" type="button">Scan now</button>
+  </div>
+</header>
+
+<main>
+  <aside class="rail" id="rail">
+    <div class="rail-search">
+      <input id="filterBox" type="search" placeholder="Filter tickers" autocomplete="off">
+    </div>
+    <div id="railList" class="rail-list">
+      <p class="empty">Loading watchlist.</p>
+    </div>
+  </aside>
+
+  <section class="workspace" id="workspace">
+    <div class="chart-head">
+      <div class="chart-id">
+        <span id="chartName">Select a ticker</span>
+        <span id="chartTicker" class="tkr-badge">—</span>
+        <span id="chartSector" class="sector"></span>
+        <div class="tabs" role="tablist">
+          <button id="tabChart" class="tab is-on" role="tab" aria-selected="true" type="button">Chart</button>
+          <button id="tabTest" class="tab" role="tab" aria-selected="false" type="button">Backtest</button>
+          <button id="tabTune" class="tab" role="tab" aria-selected="false" type="button">Tune</button>
+          <button id="tabEarn" class="tab" role="tab" aria-selected="false" type="button"
+                  title="What your recorded trades earned, after commission">Earnings</button>
+        </div>
+        <button id="posToggle" class="tab pos-btn" type="button"
+                title="Record what you actually bought">Position</button>
+        <button id="macdToggle" class="tab opt-btn" type="button" aria-pressed="false"
+                title="Show a MACD momentum pane under the chart (display only, not used by any filter)">MACD</button>
+        <select id="macdTf" class="opt-select" hidden
+                title="MACD timeframe. Weekly uses completed weeks only, like TradingView's 1 week with Wait for timeframe closes">
+          <option value="D">Daily</option>
+          <option value="W">Weekly</option>
+        </select>
+      </div>
+      <div class="controls">
+        <label>Stop width (ATR mult)
+          <input id="atrMult" type="number" min="0.5" max="8" step="0.1" value="3.0">
+        </label>
+        <label>ATR length
+          <input id="atrLen" type="number" min="2" max="50" step="1" value="10">
+        </label>
+        <label>Min trend strength (ADX)
+          <input id="adxMin" type="number" min="0" max="60" step="1" value="20">
+        </label>
+        <label>Range
+          <select id="range">
+            <option value="6M" selected>6 months</option>
+            <option value="1Y">1 year</option>
+            <option value="2Y">2 years</option>
+            <option value="5Y">5 years</option>
+            <option value="MAX">Max</option>
+          </select>
+        </label>
+        <label class="profile" title="Applies to every ticker">Filter (all tickers)
+          <select id="profile">
+            <option value="full">200-day avg + trend strength</option>
+            <option value="adx_rising">Trend strength rising</option>
+            <option value="adx_only">Trend strength only</option>
+            <option value="regime">Market regime (SPY)</option>
+            <option value="none">Unfiltered</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div id="chartView">
+      <div class="pane-wrap pane-price">
+        <span class="pane-label">Price · Supertrend stop · 200-day average (SMA)</span>
+        <div class="legend">
+          <span><i class="sw up"></i>Supertrend stop, uptrend</span>
+          <span><i class="sw down"></i>Supertrend stop, downtrend</span>
+          <span><i class="sw sma"></i>200-day average</span>
+          <span><i class="sw mark-buy"></i>Signal taken</span>
+          <span><i class="sw mark-skip"></i>Signal filtered out</span>
+          <span><i class="sw mark-earn"></i>Blocked by earnings</span>
+          <span><i class="sw mark-exit"></i>Sell</span>
+          <span><i class="sw vol"></i>Volume</span>
+          <span><i class="earn-key">E</i>Earnings</span>
+        </div>
+        <div id="priceChart" class="pane"></div>
+        <div id="earnLayer" class="earn-layer" aria-label="Earnings dates"></div>
+      </div>
+      <div class="pane-wrap pane-adx">
+        <span class="pane-label">Trend strength (ADX) <em id="adxNow"></em></span>
+        <div id="adxChart" class="pane"></div>
+      </div>
+      <div id="macdWrap" class="pane-wrap pane-macd" hidden>
+        <span class="pane-label">Momentum (MACD 12, 26, 9 · <span id="macdTfLabel">weekly</span>) · display only <em id="macdNow"></em></span>
+        <div id="macdChart" class="pane"></div>
+      </div>
+      <div id="posPanel" class="pos-panel" hidden></div>
+      <div class="readout" id="readout">
+        <p class="empty">Pick a ticker from the list to load its chart.</p>
+      </div>
+    </div>
+
+    <div id="testView" hidden>
+      <div class="test-head">
+        <span id="btRange" class="sector"></span>
+      </div>
+
+      <table class="stats" id="btStats">
+        <thead>
+          <tr>
+            <th>Filter</th>
+            <th title="Completed round trips in this window">Trades</th>
+            <th title="Share of trades that closed in profit">Win rate</th>
+            <th title="Average result per trade — the expectancy">Avg per trade</th>
+            <th title="Profit factor: total gains divided by total losses. Above 1 makes money">Profit factor (PF)</th>
+            <th title="Worst peak-to-trough fall in the equity curve">Worst drawdown</th>
+            <th title="All trades compounded over the window">Total return</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="7" class="empty">Loading.</td></tr></tbody>
+      </table>
+
+      <div class="pane-wrap pane-equity">
+        <span class="pane-label">Equity curve · growth of $100</span>
+        <div id="equityChart" class="pane"></div>
+      </div>
+      <p id="btVerdict" class="verdict-line"></p>
+    </div>
+    <div id="earnView" hidden>
+      <div class="test-head">
+        <span id="earnRange" class="sector"></span>
+        <button id="earnExport" class="tab" type="button"
+                title="Download every recorded order as a CSV file">Export CSV</button>
+      </div>
+
+      <div class="earn-summary" id="earnSummary"></div>
+
+      <div class="pane-wrap pane-earn">
+        <span class="pane-label" title="How the trading itself performed. Each day's gain or loss is chained onto the last, so money you add or take out never counts as a gain. A trade that doubles your money reads +100% here and in the table.">Return from trading, % <em id="earnPctNow"></em> ·
+          <i class="sw earn-total"></i>including open positions
+          <i class="sw earn-closed"></i>closed trades only</span>
+        <div id="pctChart" class="pane"></div>
+      </div>
+      <div class="pane-wrap pane-earn">
+        <span class="pane-label" title="The whole account: uninvested cash plus the market value of what you hold. It starts at what your first purchase cost, and rises by any money you add to afford a bigger trade.">Account balance <em id="earnPnlNow"></em> · cash plus holdings at market, after commission</span>
+        <div id="pnlChart" class="pane"></div>
+      </div>
+
+      <table class="stats" id="earnOrders">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Ticker</th>
+            <th>Order</th>
+            <th title="Shares bought or sold">Qty</th>
+            <th>Price</th>
+            <th title="Shares times price, before commission">Value</th>
+            <th title="Brokerage paid on this order">Commission</th>
+            <th title="Days from buy to sell">Held</th>
+            <th title="Profit or loss after commission, as a % of what that trade cost. The charts above measure the same profit against your whole starting balance, so the percentages differ.">P&amp;L (on trade cost)</th>
+            <th title="Remove an order entered by mistake"></th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="10" class="empty">Loading.</td></tr></tbody>
+      </table>
+    </div>
+
+    <div id="tuneView" hidden>
+      <div class="test-head">
+        <span id="tuneRange" class="sector"></span>
+        <span id="tuneCorr" class="corr"></span>
+        <button id="tuneApply" type="button" hidden>Apply to this ticker</button>
+        <button id="gridExport" type="button"
+                title="Every ticker, every filter, every ATR setting, as CSV">Export full grid</button>
+      </div>
+      <p class="tune-intro">
+        Each row is one stop setting. <strong>Fit</strong> columns come from the
+        earlier half of your history, which is where the winner was chosen.
+        <strong>Test</strong> columns come from the later half, which the search
+        never saw — so those are the only ones that tell you anything. The ticked
+        row won on Fit; check whether it also won on Test.
+      </p>
+
+      <table class="stats" id="tuneStats">
+        <thead>
+          <tr>
+            <th>ATR length</th>
+            <th>Stop width</th>
+            <th title="Trades in the fitting window">Fit trades</th>
+            <th title="Average return per trade in the fitting window">Fit per trade</th>
+            <th title="Trades in the held-back window">Test trades</th>
+            <th title="Average return per trade on data the search never saw. This is the number that matters">Test per trade</th>
+            <th>Test return</th>
+            <th>Test drawdown</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="8" class="empty">Pick a ticker, then run the search.</td></tr></tbody>
+      </table>
+
+      <p id="tuneVerdict" class="verdict-line"></p>
+      <p class="tune-note">
+        Settings are chosen using the fitting window only. The test columns come
+        from a later period the search never saw — a strong fit result with a weak
+        test result means the settings fitted noise, not the stock.
+      </p>
+    </div>
+  </section>
+</main>
+
+<div id="login" class="login" hidden>
+  <div class="login-box">
+    <h2>Enter your dashboard token</h2>
+    <p>Print it on the host with <code>docker compose exec ntfyMoose moose-creds</code></p>
+    <input id="loginToken" type="password" placeholder="Dashboard token" autocomplete="off">
+    <p id="loginErr" class="login-err" hidden>That token was rejected.</p>
+    <button id="loginGo" type="button">Unlock</button>
+  </div>
+</div>
+
+<footer class="credit">Charts by <a href="https://www.tradingview.com" target="_blank" rel="noopener">TradingView</a></footer>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+# docker-compose.yml - SupertrendMoose
+#
+#   git clone https://github.com/theblackmoose/supertrendMoose.git
+#   cd supertrendMoose
+#   docker compose up -d --build
+#
+# Works with no .env at all: loopback only, at http://localhost:19080.
+# To reach it from other devices, put the host's address in .env:
+#
+#   HOST_IP=192.168.1.50
+#
+# Credentials generate themselves inside the containers on first start.
+# Requires Docker Compose v2 (docker compose, not docker-compose).
+
+# Fixed project name, so the data volumes are found whatever the cloned
+# folder is called.
+name: supertrendmoose
+
+services:
+  ntfyMoose:
+    build: ./ntfy
+    image: supertrendmoose-ntfy:latest
+    container_name: ntfyMoose
+    restart: unless-stopped
+    networks:
+      default:
+        # Lowercase alias: Docker's embedded DNS normalises case inconsistently,
+        # so the app resolves this rather than the mixed-case service name.
+        aliases:
+          - ntfymoose
+          - ntfy
+    environment:
+      TZ: ${TZ:-Australia/Melbourne}
+      # Where the phone reaches ntfy. Left blank, the bootstrap builds it from
+      # HOST_IP and NTFY_PORT.
+      NTFY_BASE_URL: ${NTFY_PUBLIC_URL:-}
+      HOST_IP: ${HOST_IP:-}
+      NTFY_PORT: ${NTFY_PORT:-19081}
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_CACHE_DURATION: "72h"
+      NTFY_ATTACHMENT_CACHE_DIR: ""
+      NTFY_ENABLE_SIGNUP: "false"
+      NTFY_TOPIC: ${NTFY_TOPIC:-SupertrendMoose}
+      # Set to 1 for one boot to force passwords back to the stored secrets.
+      # This invalidates existing logins, so leave it at 0 normally.
+      MOOSE_RESET_PASSWORDS: ${MOOSE_RESET_PASSWORDS:-0}
+    volumes:
+      - ntfy-data:/var/lib/ntfy
+      - moose-secrets:/secrets
+    ports:
+      # NTFY_BIND overrides HOST_IP for this service only.
+      - "${NTFY_BIND:-${HOST_IP:-127.0.0.1}}:${NTFY_PORT:-19081}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:80/v1/health | grep -q true"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    # ─── hardening ───────────────────────────────────────────────────────
+    # ntfy runs as root because it creates the shared secrets, so instead of
+    # dropping to a user it keeps only the four privileges it needs:
+    #   CHOWN             hand two secrets to the app's user (uid 10001)
+    #   FOWNER            then make those files private (mode 600)
+    #   DAC_OVERRIDE      read them back as root, here and in moose-creds
+    #   NET_BIND_SERVICE  listen on port 80 inside the container
+    # Without CHOWN or FOWNER the secrets end up readable by anyone (mode 644)
+    # and the log says so. Everything else is dropped.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    # Only the two volumes and /tmp are writable.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=16m,mode=1777
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  supertrendMoose:
+    build: .
+    image: supertrendmoose:latest
+    container_name: supertrendMoose
+    restart: unless-stopped
+    depends_on:
+      ntfyMoose:
+        condition: service_healthy
+    environment:
+      # Your time zone. Scans follow the US close whatever this is.
+      TZ: ${TZ:-Australia/Melbourne}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/moose.db}
+      # Used by entrypoint.sh for the dashboard address and alert links.
+      HOST_IP: ${HOST_IP:-}
+      APP_PORT: ${APP_PORT:-19080}
+      # Internal network only; never crosses the LAN. Override both to use
+      # the public ntfy.sh instead (see .env.example).
+      NTFY_URL: ${NTFY_URL:-http://ntfymoose:80}
+      NTFY_USER: ${NTFY_USER:-moose}
+      NTFY_TOPIC: ${NTFY_TOPIC:-SupertrendMoose}
+      # NTFY_PASSWORD and AUTH_TOKEN are normally read from /secrets.
+      #
+      # Everything below is passed through from .env only when it is set
+      # there; otherwise the app's own default applies. Names only, never
+      # values, so nothing secret is written in this file.
+      BASE_URL:
+      AUTH_TOKEN:
+      NTFY_PASSWORD:
+      NTFY_TOKEN:
+      SCAN_AFTER_CLOSE_MINUTES:
+      SCAN_TIME:
+      SCAN_DAYS:
+      SCAN_HOUR:
+      SCAN_MINUTE:
+      SCAN_ON_STARTUP:
+      HISTORY_YEARS:
+      FETCH_PAUSE_SEC:
+      FETCH_BATCH_SIZE:
+      FETCH_RETRIES:
+      ATR_LEN:
+      ATR_MULT:
+      SMA_LEN:
+      DI_LEN:
+      ADX_LEN:
+      ADX_MIN:
+      DEFAULT_PROFILE:
+      COST_PCT_PER_SIDE:
+      DEFAULT_COMMISSION:
+      STARTING_CASH:
+      MIN_AVG_VOLUME:
+      MIN_ATR_PCT:
+      MAX_ATR_PCT:
+      INDICATOR_CACHE_MAX:
+      NOTIFY_CHANNELS:
+      NOTIFY_DETAIL:
+      NOTIFY_HEARTBEAT:
+      TELEGRAM_TOKEN:
+      TELEGRAM_CHAT_ID:
+      DISCORD_WEBHOOK:
+      SMTP_HOST:
+      SMTP_PORT:
+      SMTP_USER:
+      SMTP_PASS:
+      SMTP_FROM:
+      SMTP_TO:
+      SMTP_TLS:
+      YFINANCE_LOG_LEVEL:
+    ports:
+      # BIND_ADDR overrides HOST_IP for this service only.
+      - "${BIND_ADDR:-${HOST_IP:-127.0.0.1}}:${APP_PORT:-19080}:8000"
+    volumes:
+      - moose-data:/data
+      - moose-secrets:/secrets:ro
+    # ─── hardening ───────────────────────────────────────────────────────
+    # Runs as an unprivileged user with every Linux capability dropped, no
+    # way to gain privileges, and a read-only filesystem apart from /data,
+    # the secrets (read-only) and a size-limited /tmp.
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=128m,mode=1777
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  default:
+
+volumes:
+  moose-data:
+  ntfy-data:
+  moose-secrets:

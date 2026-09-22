@@ -1,0 +1,7 @@
+#!/bin/sh
+# Prints the credentials you need. They live in the /secrets volume.
+echo "ntfy server     $(cat /var/lib/ntfy/public-url 2>/dev/null || echo 'see: docker compose logs ntfyMoose')"
+echo "ntfy topic      ${NTFY_TOPIC:-SupertrendMoose}"
+echo "ntfy username   notifications"
+echo "ntfy password   $(cat /secrets/ntfy-notify.pass)"
+echo "dashboard token $(cat /secrets/api-token)"

@@ -1,0 +1,26 @@
+# Secrets - never commit
+.env
+*.pem
+*.key
+*.crt
+
+# Local data
+*.db
+data/
+
+# Backups and archives
+*.tar.gz
+*.zip
+backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

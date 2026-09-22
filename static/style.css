@@ -1,0 +1,428 @@
+/* Trading-desk instrument panel: dense, monospaced numerics, no card chrome.
+   Fonts are system stacks on purpose - this runs on a LAN with no internet. */
+
+:root {
+  --bg:      #0e1419;
+  --panel:   #151d24;
+  --rail:    #121920;
+  --line:    #223039;
+  --line-hi: #31424f;
+  --ink:     #d5dee6;
+  --dim:     #7d8f9e;
+  --up:      #2bb6a3;
+  --down:    #e5544b;
+  --warn:    #d2a03c;
+  --sel:     #4a90d9;
+
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, select { font-family: inherit; font-size: inherit; color: inherit; }
+
+/* ── header ─────────────────────────────────────────────── */
+.bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; height: 48px; padding: 0 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.bar h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.01em; }
+.bar-meta { display: flex; align-items: center; gap: 14px; }
+#lastScan { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+
+button {
+  background: transparent; color: var(--ink);
+  border: 1px solid var(--line-hi); border-radius: 3px;
+  padding: 5px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--sel); color: #fff; }
+button:disabled { opacity: 0.45; cursor: progress; }
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--sel); outline-offset: 1px;
+}
+
+/* ── layout ─────────────────────────────────────────────── */
+main { display: grid; grid-template-columns: 290px 1fr; height: calc(100% - 48px); }
+
+.rail {
+  background: var(--rail); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.rail-search { padding: 10px; border-bottom: 1px solid var(--line); }
+.rail-search input {
+  width: 100%; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 3px; padding: 6px 8px;
+}
+.rail-list { overflow-y: auto; flex: 1; }
+
+.group-label {
+  padding: 12px 12px 5px; font-size: 11px; color: var(--dim);
+  letter-spacing: 0.04em; border-top: 1px solid var(--line);
+}
+.rail-list > .group-label:first-child { border-top: 0; }
+
+/* Left border encodes state - it is information, not decoration */
+.row {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 8px;
+  padding: 7px 12px 7px 9px; cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.row:hover { background: #1a242c; }
+.row[aria-selected="true"] { background: #1d2a34; border-left-color: var(--sel); }
+.row.signal { border-left-color: var(--up); }
+.row.trending { border-left-color: #2bb6a355; }
+.row.standby { border-left-color: var(--line-hi); }
+.row.blocked { border-left-color: var(--warn); }
+
+.row .tkr { font-family: var(--mono); font-weight: 600; letter-spacing: 0.02em; }
+.row .score {
+  display: inline-block; margin-left: 7px; padding: 0 5px;
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  color: var(--dim); border: 1px solid var(--line-hi); border-radius: 2px;
+}
+.row.signal .score, .row.trending .score { color: var(--up); border-color: #2bb6a355; }
+.row .score.none, .row.signal .score.none, .row.trending .score.none {
+  color: var(--dim); border-color: var(--line);
+}
+.row .px { font-family: var(--mono); font-size: 13px; }
+.row .note { grid-column: 1 / -1; font-size: 11px; color: var(--dim); }
+.row .note.pass { color: var(--up); }
+.row .note.warn { color: var(--warn); }
+
+/* ── workspace ──────────────────────────────────────────── */
+.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.chart-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding: 9px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.chart-id { display: flex; align-items: baseline; gap: 10px; }
+#chartName { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.tkr-badge {
+  font-family: var(--mono); font-size: 12px; color: var(--dim);
+  border: 1px solid var(--line-hi); border-radius: 3px; padding: 1px 6px;
+}
+.sector { font-size: 12px; color: var(--dim); }
+
+.controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.controls label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.controls input { width: 68px; }
+.controls input, .controls select {
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 3px; padding: 4px 6px; font-family: var(--mono);
+}
+/* Auto width so option text is never clipped */
+.controls select { width: auto; min-width: 96px; font-family: var(--sans); }
+.controls .profile select { min-width: 210px; }
+
+.pane { width: 100%; height: 100%; }
+.pane-wrap { position: relative; width: 100%; }
+.pane-price { flex: 1 1 auto; min-height: 260px; }
+.pane-adx { height: 118px; border-top: 1px solid var(--line); }
+.pane-macd { height: 300px; border-top: 1px solid var(--line); }
+.pane-earn { height: 240px; border-top: 1px solid var(--line); }
+
+/* Earnings tab: totals strip above the two curves. */
+#earnView { overflow-y: auto; padding-bottom: 16px; }
+.earn-summary {
+  display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--line);
+}
+.earn-summary div {
+  flex: 1 1 120px; padding: 10px 14px; border-right: 1px solid var(--line);
+}
+.earn-summary i { display: block; font-style: normal; font-size: 11px; color: var(--dim); }
+.earn-summary b { font-size: 16px; font-weight: 600; }
+#earnExport { margin-left: auto; }
+/* A split makes a recorded price wrong until it is restated. */
+.pos-panel .split-warn {
+  flex-basis: 100%; font-size: 12px; color: var(--warn);
+  display: flex; align-items: center; gap: 8px;
+}
+.pos-panel .sizer {
+  flex-basis: 100%; display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 8px;
+}
+.pos-panel .sizer b { color: var(--ink); font-weight: 600; }
+/* Green when positive, red when negative. The .pos/.neg colours are scoped
+   to .stats tables, so the totals strip needs its own. */
+.earn-summary .pos, .earn-summary b.pos, .earn-summary span.pos { color: var(--up); }
+.earn-summary .neg, .earn-summary b.neg, .earn-summary span.neg { color: var(--down); }
+/* The live return line is green above zero and red below, so its swatch
+   carries both rather than pretending to be one colour. */
+/* The live return line is green above zero and red below, so its swatch
+   shows both halves. */
+.pane-label .sw.earn-total {
+  background: linear-gradient(90deg, var(--up) 0 50%, var(--down) 50% 100%);
+}
+.pane-label .sw.earn-closed { background: #7d8f9e; }
+.pane-label .sw { display: inline-block; width: 12px; height: 2px; border-radius: 1px;
+                  vertical-align: middle; margin: 0 4px 0 8px; }
+#earnOrders td.side-buy { color: var(--up); }
+#earnOrders td.side-sell { color: var(--down); }
+/* Each trade is boxed, so the buy and the sell that belong together read as
+   one thing even when other trades sit above and below. */
+#earnOrders tr.trade td { border-top: none; border-bottom: none; }
+#earnOrders tr.trade td:first-child { border-left: 2px solid #3d4b58; }
+#earnOrders tr.trade td:last-child { border-right: 2px solid #3d4b58; }
+#earnOrders tr.trade-start td { border-top: 2px solid #3d4b58; }
+#earnOrders tr.trade-end td { border-bottom: 2px solid #3d4b58; }
+#earnOrders tr.trade-start td:first-child { border-top-left-radius: 4px; }
+#earnOrders tr.trade-end td:first-child { border-bottom-left-radius: 4px; }
+#earnOrders tr.trade:hover td { background: #17212b; }
+#earnOrders tr.open td { background: #16202a; }
+#earnOrders td.act { text-align: right; width: 34px; }
+#earnOrders .del {
+  background: none; border: 1px solid transparent; color: var(--dim);
+  border-radius: 3px; padding: 0 5px; font-size: 13px; line-height: 18px; cursor: pointer;
+}
+#earnOrders .del:hover { border-color: var(--down); color: var(--down); }
+#earnOrders .tag {
+  font-size: 10px; color: var(--dim); border: 1px solid var(--line);
+  border-radius: 3px; padding: 1px 4px; margin-left: 6px;
+}
+.pane-wrap[hidden] { display: none; }
+
+/* Sits over the chart canvas, out of the plot area's way */
+.pane-label {
+  position: absolute; top: 6px; left: 10px; z-index: 3; pointer-events: none;
+  font-size: 11px; letter-spacing: 0.02em; color: var(--dim);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  padding: 1px 6px; border-radius: 3px;
+}
+.pane-label em { font-style: normal; font-family: var(--mono); color: var(--ink); }
+
+/* ── readout strip ──────────────────────────────────────── */
+.readout {
+  display: flex; gap: 0; flex-wrap: wrap;
+  border-top: 1px solid var(--line); background: var(--panel);
+  padding: 0; min-height: 56px;
+}
+.readout .cell {
+  padding: 9px 18px; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 3px; min-width: 96px;
+}
+.readout .k { font-size: 11px; color: var(--dim); }
+.readout .v { font-family: var(--mono); font-size: 15px; }
+.v.up { color: var(--up); } .v.down { color: var(--down); } .v.warn { color: var(--warn); }
+.readout .verdict { flex: 1; justify-content: center; border-right: 0; }
+.readout .verdict .v { font-size: 16px; font-weight: 600; }
+
+.empty { color: var(--dim); padding: 16px; margin: 0; font-size: 13px; }
+
+/* ── toast ──────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 20px; right: 20px; z-index: 20;
+  background: var(--panel); border: 1px solid var(--line-hi); border-left: 3px solid var(--sel);
+  border-radius: 3px; padding: 11px 16px; max-width: 380px; font-size: 13px;
+}
+.toast.err { border-left-color: var(--down); }
+
+@media (max-width: 860px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 230px 1fr; }
+  .rail { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* ── view tabs ──────────────────────────────────────────── */
+.tabs { display: flex; gap: 3px; margin-left: 6px; }
+.tab {
+  border: 1px solid var(--line); border-radius: 3px; padding: 3px 12px;
+  font-size: 12px; color: var(--dim); background: transparent;
+}
+.tab.is-on { color: var(--ink); background: #1d2a34; border-color: var(--line-hi); }
+
+#chartView, #testView, #tuneView { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#chartView[hidden], #testView[hidden], #tuneView[hidden], #earnView[hidden] { display: none; }
+#tuneView { overflow-y: auto; }
+/* Under Backtest the chart gets half the height. Scroll inside that half
+   rather than letting the panes and readout spill over the results table. */
+#chartView { overflow-y: auto; }
+.pane-adx, .pane-macd, .readout, .pos-panel { flex-shrink: 0; }
+
+/* ── backtest ───────────────────────────────────────────── */
+.test-head {
+  display: flex; align-items: center; gap: 16px;
+  padding: 7px 16px; border-bottom: 1px solid var(--line); min-height: 30px;
+}
+.test-head label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.test-head select {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px;
+}
+
+.stats { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
+.stats th {
+  text-align: right; font-family: var(--sans); font-weight: 500; font-size: 11px;
+  color: var(--dim); padding: 8px 16px; border-bottom: 1px solid var(--line);
+}
+.stats th:first-child, .stats td:first-child { text-align: left; }
+.stats td { text-align: right; padding: 7px 16px; border-bottom: 1px solid #1a242c; }
+.stats tr.best td { background: #16241f; }
+.stats tr.bh td { color: var(--dim); border-top: 1px solid var(--line); }
+.stats td:first-child { font-family: var(--sans); }
+.stats .swatch {
+  display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 8px;
+}
+.stats .pos { color: var(--up); }
+.stats .neg { color: var(--down); }
+.stats .assigned { color: var(--dim); font-size: 11px; margin-left: 7px; }
+
+.pane-equity { flex: 1 1 auto; min-height: 220px; border-top: 1px solid var(--line); }
+
+.verdict-line {
+  margin: 0; padding: 12px 16px; font-size: 13px; line-height: 1.5;
+  border-top: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+.verdict-line.low { border-left: 3px solid var(--warn); }
+
+/* ── token gate ─────────────────────────────────────────── */
+.login {
+  position: fixed; inset: 0; z-index: 40;
+  background: var(--bg); display: grid; place-items: center;
+}
+.login[hidden] { display: none; }
+.login-box { width: min(380px, 88vw); }
+.login-box h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.login-box p { margin: 0 0 16px; font-size: 12px; color: var(--dim); line-height: 1.6; }
+.login-box code {
+  font-family: var(--mono); font-size: 11px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 3px; padding: 2px 5px;
+}
+.login-box input {
+  width: 100%; background: var(--panel); border: 1px solid var(--line-hi);
+  border-radius: 3px; padding: 9px 11px; font-family: var(--mono);
+}
+.login-box button { width: 100%; margin-top: 10px; padding: 9px; }
+.login-err { color: var(--down) !important; margin: 8px 0 0 !important; }
+.login-err[hidden] { display: none; }
+
+/* ── attribution ────────────────────────────────────────── */
+.credit {
+  position: fixed; bottom: 0; right: 0; z-index: 5;
+  font-size: 10px; color: var(--dim);
+  padding: 3px 9px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  border-top-left-radius: 3px;
+}
+.credit a { color: var(--dim); }
+.credit a:hover { color: var(--ink); }
+
+/* ── chart legend ───────────────────────────────────────── */
+.legend {
+  position: absolute; top: 24px; left: 10px; z-index: 3; pointer-events: none;
+  display: flex; flex-wrap: wrap; gap: 4px 14px; max-width: calc(100% - 120px);
+  font-size: 10px; color: var(--dim);
+}
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend .sw { width: 12px; height: 2px; border-radius: 1px; display: inline-block; }
+.legend .sw.up { background: #4caf50; }
+.legend .sw.down { background: var(--down); }
+.legend .sw.sma { background: var(--warn); }
+.legend .sw.mark-buy, .legend .sw.mark-skip, .legend .sw.mark-earn,
+.legend .sw.mark-exit {
+  width: 0; height: 0; background: none;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+}
+.legend .sw.mark-buy { border-bottom: 7px solid var(--up); }
+.legend .sw.mark-skip { border-bottom: 7px solid #5c6b7a; }
+.legend .sw.mark-earn { border-bottom: 7px solid #9a86d4; }
+.legend .sw.mark-exit { border-top: 7px solid var(--down); }
+.legend .sw.vol { height: 8px; width: 8px; background: #2bb6a399; }
+.legend .earn-key, .earn-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 50%; font: 600 9px/1 var(--sans);
+  font-style: normal; color: #e9e3fb; background: #3b3160; border: 1px solid #9a86d4;
+}
+.legend .earn-key { vertical-align: middle; }
+
+/* Earnings badges sit over the price canvas, along the bottom of the plot.
+   Only the badges take the pointer, so dragging the chart still works. */
+.earn-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+.earn-badge { position: absolute; transform: translateX(-50%); pointer-events: auto; cursor: default; }
+.earn-badge.next { background: transparent; border-style: dashed; color: #c9bdf0; }
+
+/* ── tuning ─────────────────────────────────────────────── */
+.tune-note {
+  margin: 0; padding: 10px 16px 20px; font-size: 12px; line-height: 1.6;
+  color: var(--dim); max-width: 780px;
+}
+.stats tr.chosen td { background: #16241f; }
+.stats tr.chosen td:first-child::before { content: "\2713  "; color: var(--up); }
+.stats tr.baseline td { color: var(--dim); }
+.verdict-line.held { border-left: 3px solid var(--up); }
+#tuneApply { margin-left: auto; }
+#gridExport { margin-left: 8px; }
+
+/* Backtest stacks the chart above the results. Both halves flex to fill the
+   viewport; the min-height on .pane-equity above is what stops the curve
+   being squeezed to nothing when the table and verdict take their space. */
+
+.tune-intro {
+  margin: 0; padding: 10px 16px 12px; font-size: 12px; line-height: 1.6;
+  color: var(--dim); max-width: 900px; border-bottom: 1px solid var(--line);
+}
+.tune-intro strong { color: var(--ink); font-weight: 500; }
+
+/* ── position panel ─────────────────────────────────────── */
+.pos-panel {
+  border-top: 1px solid var(--line); background: var(--panel);
+  padding: 11px 16px; display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; font-size: 13px;
+}
+.pos-panel[hidden] { display: none; }
+.pos-panel label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.pos-panel input {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 3px;
+  padding: 4px 7px; font-family: var(--mono); width: 110px;
+}
+/* 110px clipped the year to "202" - a native date field has to fit
+   dd / mm / yyyy and the calendar button. */
+.pos-panel input[type="date"] { width: 150px; }
+.pos-panel .held {
+  font-family: var(--mono); display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline;
+}
+.pos-panel .held b { font-weight: 600; }
+.pos-panel .k { font-family: var(--sans); font-size: 11px; color: var(--dim); margin-right: 5px; }
+.pos-panel .danger { border-color: #e5544b55; color: var(--down); }
+.pos-panel .danger:hover { border-color: var(--down); }
+.row .held-dot {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--sel); margin-left: 6px; vertical-align: middle;
+}
+.stats tr.mine td { background: #1d2a34; }
+.stats tr.mine td:first-child { color: var(--sel); }
+
+/* Position sits with the tabs, set apart so it reads as an action rather
+   than a fourth view. */
+.chart-id .pos-btn { margin-left: 18px; }
+/* Optional panes sit beside Position as toggles, not views. */
+.chart-id .opt-btn { margin-left: 4px; }
+.chart-id .opt-select {
+  align-self: center; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font-size: 12px;
+}
+.chart-id .opt-select[hidden] { display: none; }
+
+/* Fit-to-test correlation: the tab's own honesty check, shown every time. */
+.corr {
+  font-family: var(--mono); font-size: 11px; padding: 2px 8px;
+  border-radius: 3px; border: 1px solid var(--line-hi); color: var(--dim);
+}
+.corr.none { border-color: #d2a03c55; color: var(--warn); }
+.corr.some { border-color: #2bb6a355; color: var(--up); }
+
+.sector.warn-note { color: var(--warn); }
