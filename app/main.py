@@ -118,6 +118,12 @@ def _catch_up() -> None:
         behind = market.sessions_behind(latest)
         if not behind:
             return
+        # A session that has only just closed belongs to the nightly scan,
+        # not to catch-up. Without this, the first 15-minute tick after the
+        # close + settle window scans (and alerts) early, then the nightly
+        # scan fires on schedule and sends the same alert a second time.
+        if datetime.now(UTC) < _scheduled_scan_due(market.last_completed_session()):
+            return
         # Yahoo being down must not turn this into a retry loop.
         now = datetime.now(UTC)
         if _last_catch_up and now - _last_catch_up < CATCH_UP_RETRY:
@@ -128,6 +134,23 @@ def _catch_up() -> None:
         scanner.run_scan(refresh_prices=True, notify_on=True)
     except Exception as e:  # noqa: BLE001 - a background job must not die
         log.error("catch-up scan failed: %s", e)
+
+
+CATCH_UP_GRACE = timedelta(minutes=20)    # let the nightly scan run first
+
+
+def _scheduled_scan_due(session: date) -> datetime:
+    """When the nightly scan for `session` should have finished by.
+
+    Uses the real trigger, so it follows SCAN_AFTER_CLOSE_MINUTES or a fixed
+    SCAN_TIME alike. Capped at a day after the close so a SCAN_DAYS setting
+    that skips this session cannot stall catch-up indefinitely.
+    """
+    close = datetime.combine(session, market.CLOSE, market.NY)
+    fire = SCHEDULE.trigger.get_next_fire_time(None, close)
+    cap = close + timedelta(hours=24)
+    due = min(fire, cap) if fire else cap
+    return (due + CATCH_UP_GRACE).astimezone(UTC)
 
 
 def _latest_stored_date() -> date | None:
