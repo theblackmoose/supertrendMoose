@@ -1,7 +1,3 @@
-# https://github.com/theblackmoose/supertrendMoose
-
----
-
 # SupertrendMoose
 
 **Big antlers, sharper entries.**
