@@ -154,18 +154,53 @@ SMTP_TLS=true
 
 `SMTP_FROM` must match `SMTP_USER` — Gmail only sends as the authenticated account or an alias it has verified, and rejects anything else. Keep `SMTP_TO` different from `SMTP_FROM`: a message claiming to be from the mailbox it arrives at looks like spoofing to a spam filter, and some providers file it outside the Inbox.
 
-**4. Put the password in the secrets volume, not in `.env`.** This is the step worth taking. `.env` sits on the host filesystem and its contents show up in `docker inspect` and `docker compose config` — the output people paste when asking for help. The secrets volume never touches the host:
+**4. Put the password in the secrets volume, not in `.env`.** This is the step worth taking. `.env` sits on the host filesystem and its contents show up in `docker inspect` and `docker compose config` — the output people paste when asking for help. The secrets volume never touches the host.
+
+Run this from the folder containing `docker-compose.yml`. The prompt runs on the host, where hidden input is reliable, and the password is piped into the container with no terminal attached:
+
+**Linux / macOS (bash or zsh):**
+
+```bash
+read -rsp 'App password: ' p; echo; printf '%s' "$p" | docker compose exec -T ntfyMoose sh -c 'tr -d [:space:] > /secrets/smtp.pass && chown 10001 /secrets/smtp.pass && chmod 600 /secrets/smtp.pass && echo Saved $(wc -c < /secrets/smtp.pass) characters, expect 16'; unset p
+```
+
+**Windows PowerShell:**
+
+```powershell
+$p = Read-Host -AsSecureString 'App password'; [Net.NetworkCredential]::new('', $p).Password | docker compose exec -T ntfyMoose sh -c 'tr -d [:space:] > /secrets/smtp.pass && chown 10001 /secrets/smtp.pass && chmod 600 /secrets/smtp.pass && echo Saved $(wc -c < /secrets/smtp.pass) characters, expect 16'; Remove-Variable p
+```
+
+Paste the app password at the prompt — nothing is shown — and press **Enter once**. You should see `Saved 16 characters, expect 16`. Spaces are stripped, so Google's `abcd efgh ijkl mnop` format is fine as pasted. Any other count means the paste went wrong; run it again.
+
+Why this form:
+
+- **The password never appears on a command line**, so it stays out of your shell history.
+- **Do not use `docker compose exec` without `-T` and type into the container.** The container's terminal handles hidden input badly through `exec`: it can echo the password, swallow keystrokes and save a partial or empty file.
+- **If the command errors immediately** (for example "no configuration file provided" because you are in the wrong folder), nothing was saved. Nothing you type afterwards reaches the container either, so check your shell history for a stray password and remove it (`history -d <line>`).
+- **The `chown` matters:** the app runs as uid 10001 and cannot read a root-owned file at mode 600.
+
+To confirm it without printing it:
+
+```bash
+docker compose exec ntfyMoose ls -ln /secrets/smtp.pass
+```
+
+Expect `-rw-------`, owner `10001`, size `16`.
+
+Then restart the app so it reads the password — it is loaded once at startup:
 
 ```
-docker compose exec ntfyMoose sh -c 'cat > /secrets/smtp.pass && chown 10001 /secrets/smtp.pass && chmod 600 /secrets/smtp.pass'
+docker compose up -d --force-recreate supertrendMoose
 ```
 
-Type or paste the app password, press Enter, then **Ctrl-D**. Nothing reaches your shell history this way. The `chown` matters: the app runs as uid 10001 and cannot read a root-owned file at mode 600.
+This also picks up any `.env` changes. Plain `docker compose restart` does not: it restarts the container with the settings it already had.
 
-Then restart so it is picked up:
+**5. Allow outbound TCP 587 from the server.** If your firewall restricts what the server can reach — a common homelab setup is to allow only 80 and 443 — email will fail until you add a pass rule for the server's IP to TCP 587. On pfSense or OPNsense: *Firewall → Rules → [the server's interface]*, pass TCP from the server to port 587, above any block rule. The destination can be *any*, or a host alias for `smtp.gmail.com`; Google rotates the addresses behind that name often, so an alias can occasionally miss a newly resolved address.
 
-```
-docker compose up -d
+To check from the server:
+
+```bash
+timeout 5 bash -c '</dev/tcp/smtp.gmail.com/587' && echo open || echo blocked
 ```
 
   `SMTP_PASS` in `.env` still works and still takes precedence, so an existing setup keeps running unchanged. The volume is simply the better place for it. To move an existing password across, write the file as above and delete the `SMTP_PASS` line from `.env`.
@@ -201,6 +236,8 @@ docker compose logs --tail=30 supertrendMoose | grep -i email
 | ------- | ----- |
 | `535` authentication failed | Wrong app password, or 2-Step Verification is off |
 | `534` / "application-specific password required" | Using the account password instead of an app password |
+| `[Errno 101] Network is unreachable` | Outbound TCP 587 is blocked (see step 5). Python reports only the last address it tried, usually IPv6, which Docker has no route for, so this hides the real IPv4 timeout |
+| `timed out` / `Connection refused` | Outbound TCP 587 is blocked at the host, firewall or ISP (see step 5) |
 | Reports `false` with no SMTP error | `SMTP_HOST` or `SMTP_TO` unset — both are required before email is attempted |
 | **Reports `true`, nothing arrives** | The relay accepted it and delivery failed later. Check Gmail's *Sent* folder, then Gmail's *Inbox* for a bounce notice |
 | Relay shows it delivered, still not in the inbox | Your provider filed it outside the Inbox. Search *All mail*, and *Sent* if the From matches your own address |
@@ -218,7 +255,14 @@ Allow from your client networks to the server address:
 | your workstation VLAN | server IP | 19080/tcp | dashboard |
 | your phone's VLAN | server IP | 19081/tcp | ntfy alerts |
 
-The server needs outbound HTTPS for Yahoo Finance. Nothing else outbound is required, and nothing inbound from the internet.
+Allow outbound from the server:
+
+| Source | Destination | Port | Purpose |
+| ------ | ----------- | ---- | ------- |
+| server IP | any | 443/tcp | Yahoo Finance price data |
+| server IP | any (or `smtp.gmail.com` alias) | 587/tcp | email alerts — only if `email` is in `NOTIFY_CHANNELS` |
+
+Nothing else outbound is required, and nothing inbound from the internet.
 
 If the phone sits on a guest or IoT VLAN that cannot reach services, either move it or add the single 19081 rule. ntfy will not work over the internet in this setup, which is deliberate: it stays on the LAN.
 

@@ -194,7 +194,7 @@ Invoke-RestMethod -Method Post http://localhost:19080/api/test-notification `
   -Headers @{ "X-Auth-Token" = "<your dashboard token>" }
 ```
 
-- **Prefer email, Telegram or Discord?** `NOTIFY_CHANNELS` takes any comma-separated combination, and running two is a reasonable default for a once-daily alert. [DEPLOY.md](DEPLOY.md#-email-alerts-optional) walks through email via Gmail, including how to keep the password out of `.env`.
+- **Prefer email, Telegram or Discord?** `NOTIFY_CHANNELS` takes any comma-separated combination, and running two is a reasonable default for a once-daily alert. [DEPLOY.md](DEPLOY.md#-email-alerts-optional) walks through email via Gmail, including how to keep the password out of `.env` and the outbound port 587 your firewall must allow.
 
 ---
 
