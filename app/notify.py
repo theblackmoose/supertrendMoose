@@ -16,11 +16,18 @@ from .config import settings
 log = logging.getLogger("notify")
 
 
-def _ntfy(title: str, body: str, url: str = "") -> bool:
+def _ntfy(title: str, body: str, url: str = "", urgent: bool = False) -> bool:
     if not settings.ntfy_topic:
         log.warning("ntfy enabled but NTFY_TOPIC is unset")
         return False
-    headers = {"Title": title, "Tags": "chart_with_upwards_trend", "Priority": "default"}
+    # An urgent alert is a sell on something you hold. High priority makes the
+    # phone buzz and sound where a routine alert would sit silently, and the
+    # warning tag replaces the chart icon so it is recognisable at a glance.
+    headers = {
+        "Title": title,
+        "Tags": "warning" if urgent else "chart_with_upwards_trend",
+        "Priority": "high" if urgent else "default",
+    }
     if url:
         headers["Click"] = url
 
@@ -41,7 +48,7 @@ def _ntfy(title: str, body: str, url: str = "") -> bool:
     return r.is_success
 
 
-def _telegram(title: str, body: str, url: str = "") -> bool:
+def _telegram(title: str, body: str, url: str = "", urgent: bool = False) -> bool:
     if not (settings.telegram_token and settings.telegram_chat_id):
         return False
     text = f"*{title}*\n{body}" + (f"\n{url}" if url else "")
@@ -53,7 +60,7 @@ def _telegram(title: str, body: str, url: str = "") -> bool:
     return r.is_success
 
 
-def _discord(title: str, body: str, url: str = "") -> bool:
+def _discord(title: str, body: str, url: str = "", urgent: bool = False) -> bool:
     if not settings.discord_webhook:
         return False
     content = f"**{title}**\n```\n{body}\n```" + (f"\n{url}" if url else "")
@@ -61,11 +68,16 @@ def _discord(title: str, body: str, url: str = "") -> bool:
     return r.is_success
 
 
-def _email(title: str, body: str, url: str = "") -> bool:
+def _email(title: str, body: str, url: str = "", urgent: bool = False) -> bool:
     if not (settings.smtp_host and settings.smtp_to):
         return False
     msg = EmailMessage()
     msg["Subject"] = title
+    if urgent:
+        # Honoured by Outlook, Thunderbird and most desktop clients; ignored
+        # harmlessly by the rest. The subject line carries the message anyway.
+        msg["Importance"] = "High"
+        msg["X-Priority"] = "1"
     msg["From"] = settings.smtp_from or settings.smtp_user
     msg["To"] = ", ".join(settings.smtp_to)
     msg.set_content(body + (f"\n\n{url}" if url else ""))
@@ -81,8 +93,12 @@ def _email(title: str, body: str, url: str = "") -> bool:
 BACKENDS = {"ntfy": _ntfy, "telegram": _telegram, "discord": _discord, "email": _email}
 
 
-def send(title: str, body: str, url: str = "") -> dict[str, bool]:
-    """Fan out to every configured channel. Never raises."""
+def send(title: str, body: str, url: str = "", urgent: bool = False) -> dict[str, bool]:
+    """Fan out to every configured channel. Never raises.
+
+    urgent marks an alert that needs acting on: today, a sell signal on a
+    position you hold. Channels that support it raise its priority.
+    """
     results: dict[str, bool] = {}
     for name in settings.notify_channels:
         fn = BACKENDS.get(name.strip().lower())
@@ -90,19 +106,28 @@ def send(title: str, body: str, url: str = "") -> dict[str, bool]:
             log.warning("unknown notify channel: %s", name)
             continue
         try:
-            results[name] = fn(title, body, url or settings.base_url)
+            results[name] = fn(title, body, url or settings.base_url, urgent=urgent)
         except Exception as e:  # noqa: BLE001
             log.warning("%s notification failed: %s", name, e)
             results[name] = False
     return results
 
 
-def _counts_title(n_b: int, n_e: int) -> str:
+def _counts_title(n_b: int, n_e: int, n_held: int = 0) -> str:
+    # Held sells lead the title: it is all a lock screen shows, and a sell on
+    # something you own is the one alert that needs acting on. It names a
+    # count, never a ticker, so it is safe in minimal mode too.
+    held = f" ({n_held} you hold)" if n_held else ""
     if n_b and n_e:
-        return f"{n_b} buy, {n_e} sell"
+        return f"{n_b} buy, {n_e} sell{held}"
     if n_b:
         return f"{n_b} buy signal" + ("s" if n_b > 1 else "")
-    return f"{n_e} sell signal" + ("s" if n_e > 1 else "")
+    return f"{n_e} sell signal" + ("s" if n_e > 1 else "") + held
+
+
+def held_exits(exits: list[dict]) -> int:
+    """How many sell signals are on positions you hold."""
+    return sum(1 for s in exits if s.get("position"))
 
 
 def format_signals(
@@ -121,7 +146,10 @@ def format_signals(
     """
     detail = (detail or settings.notify_detail).strip().lower()
     n_b, n_e = len(buys), len(exits)
-    counts = _counts_title(n_b, n_e)
+    counts = _counts_title(n_b, n_e, held_exits(exits))
+    # Held positions first; sorted() is stable, so watchlist order is kept
+    # within each group.
+    exits = sorted(exits, key=lambda s: not s.get("position"))
 
     if detail == "minimal":
         return counts, "Open the scanner for details."
