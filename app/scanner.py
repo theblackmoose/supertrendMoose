@@ -454,7 +454,8 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True) -> dict:
     if notify_on and (buys or exits):
         title, body = notify.format_signals(buys, exits, blocked=blocked,
                                             scanned=len(states))
-        sent = notify.send(f"SupertrendMoose: {title}", body)
+        sent = notify.send(f"SupertrendMoose: {title}", body,
+                           urgent=bool(notify.held_exits(exits)))
         _mark_notified([b["ticker"] for b in buys] + [e["ticker"] for e in exits])
 
     with get_session() as s:
