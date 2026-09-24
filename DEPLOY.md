@@ -280,19 +280,31 @@ Back it up weekly with a cron entry:
   tar czf /backup/moose-db-$(date +\%F).tar.gz -C /data moose.db
 ```
 
-To restore, stop the app first so the database is not in use:
+Backup on Linux:
+
+```
+mkdir -p ~/supertrendmoose_backups
+
+docker run --rm -v supertrendmoose_moose-data:/data -v ~/supertrendmoose_backups:/backup alpine \
+  tar czf /backup/moose-db_$(date +%Y%m%d).tar.gz -C /data moose.db
+```
+
+Restore on Linux (stop the app first, so the database is not in use):
 
 ```
 docker compose stop supertrendMoose
-```
 
-```
-docker run --rm -v supertrendmoose_moose-data:/data -v /home/<user>/backups:/backup alpine \
-  tar xzf /backup/moose-db-YYYY-MM-DD.tar.gz -C /data
-```
+docker run --rm -v supertrendmoose_moose-data:/data -v ~/supertrendmoose_backups:/backup alpine \
+  sh -c 'rm -f /data/moose.db-wal /data/moose.db-shm && tar xzf /backup/moose-db_YYYYMMDD.tar.gz \
+  -C /data && ls -ln /data'
 
-```
 docker compose start supertrendMoose
+```
+
+Verify the restore worked:
+
+```
+docker run --rm -v supertrendmoose_moose-data:/data alpine ls -lah /data
 ```
 
 VM or LXC snapshots cover this too, but a file-level copy restores faster and is easy to verify.
