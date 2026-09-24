@@ -279,10 +279,7 @@ Backup on Linux:
 mkdir -p ~/supertrendmoose_backups
 
 docker run --rm -v supertrendmoose_moose-data:/data -v ~/supertrendmoose_backups:/backup alpine \
-  tar czf /backup/moose-data_$(date +%Y%m%d).tar.gz -C /data .
-
-docker run --rm -v supertrendmoose_ntfy-data:/ntfy -v ~/supertrendmoose_backups:/backup alpine \
-  tar czf /backup/ntfy-data_$(date +%Y%m%d).tar.gz -C /ntfy .
+  tar czf /backup/moose-db_$(date +%Y%m%d).tar.gz -C /data moose.db
 ```
 
 Restore on Linux (stop the app first, so the database is not in use):
@@ -291,7 +288,8 @@ Restore on Linux (stop the app first, so the database is not in use):
 docker compose stop supertrendMoose
 
 docker run --rm -v supertrendmoose_moose-data:/data -v ~/supertrendmoose_backups:/backup alpine \
-  sh -lc 'cd /data && tar xzf /backup/moose-data_YYYYMMDD.tar.gz'
+  sh -c 'rm -f /data/moose.db-wal /data/moose.db-shm && tar xzf /backup/moose-db_YYYYMMDD.tar.gz \
+  -C /data && ls -ln /data'
 
 docker compose start supertrendMoose
 ```
