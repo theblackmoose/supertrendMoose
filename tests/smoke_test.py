@@ -3453,9 +3453,9 @@ _x73 = [{"ticker": "SPY", "reason": "outside liquidity/ATR screen",
 _t73, _y73 = notify.format_signals(_b73, _e73, "full", blocked=_x73, scanned=41)
 
 check("Heading names the app in mixed case with the counts",
-      _y73.splitlines()[0] == "SupertrendMoose — 1 buy, 2 sell", _y73.splitlines()[0])
+      _y73.splitlines()[0] == "SupertrendMoose — 1 buy, 2 sell (1 you hold)", _y73.splitlines()[0])
 check("Heading is not shouted", "SUPERTRENDMOOSE" not in _y73)
-check("Subject stays the bare counts", _t73 == "1 buy, 2 sell", _t73)
+check("Subject stays the bare counts", _t73 == "1 buy, 2 sell (1 you hold)", _t73)
 check("Scan summary reports the ticker count and newest bar",
       "Scanned 41 tickers, prices through 2026-09-19" in _y73, _y73)
 check("Buys carry risk, ADX, ATR, the 200MA side and the score",
@@ -3563,6 +3563,54 @@ check("SMTP_PASS is still reachable from .env for anyone who prefers that",
       "SMTP_PASS" in (ROOT / ".env.example").read_text())
 check("Putting it in the volume is documented",
       "smtp.pass" in (ROOT / "DEPLOY.md").read_text())
+
+
+print("\n75. A sell on a position you hold stands out")
+_e75 = [{"ticker": "AMD", "close": 90.0},
+        {"ticker": "NVDA", "close": 120.0, "position": {"pnl_pct": 12.3, "held_days": 41}}]
+_t75, _b75 = notify.format_signals([], _e75, "full")
+check("Title counts held sells", _t75 == "2 sell signals (1 you hold)", _t75)
+check("Held sells are listed first",
+      _b75.index("NVDA") < _b75.index("AMD"), _b75)
+check("Sorting does not reorder the caller's list",
+      [s["ticker"] for s in _e75] == ["AMD", "NVDA"])
+check("Minimal title flags a held sell without naming it",
+      notify.format_signals([], _e75, "minimal")[0] == "2 sell signals (1 you hold)"
+      and "NVDA" not in "".join(notify.format_signals([], _e75, "minimal")))
+check("Mixed title flags held sells",
+      notify.format_signals([{"ticker": "MU", "close": 80.0}], _e75, "full")[0]
+      == "1 buy, 2 sell (1 you hold)")
+check("Unheld sells keep the plain title",
+      notify.format_signals([], _e75[:1], "full")[0] == "1 sell signal")
+check("held_exits counts only held positions", notify.held_exits(_e75) == 1)
+
+_cap75 = {}
+_real75 = httpx.post
+httpx.post = lambda url, **kw: (_cap75.update(kw), type("R", (), {"is_success": True, "status_code": 200})())[1]
+try:
+    notify.settings.ntfy_topic = "supertrend"
+    notify.BACKENDS["ntfy"]("t", "b", "", urgent=True)
+    check("Held sell raises ntfy priority", _cap75["headers"]["Priority"] == "high")
+    check("Held sell uses the warning tag", _cap75["headers"]["Tags"] == "warning")
+    notify.BACKENDS["ntfy"]("t", "b")
+    check("Routine alerts stay at default priority", _cap75["headers"]["Priority"] == "default")
+finally:
+    httpx.post = _real75
+
+_sent75 = []
+_orig_backends75 = dict(notify.BACKENDS)
+_orig_channels75 = notify.settings.notify_channels
+try:
+    notify.BACKENDS["ntfy"] = lambda t, b, u="", urgent=False: _sent75.append(urgent) or True
+    notify.settings.notify_channels = ["ntfy"]
+    notify.send("t", "b", urgent=True)
+    notify.send("t", "b")
+    check("send() passes urgency through", _sent75 == [True, False], _sent75)
+finally:
+    notify.BACKENDS.clear(); notify.BACKENDS.update(_orig_backends75)
+    notify.settings.notify_channels = _orig_channels75
+check("The scan marks a held sell urgent",
+      "urgent=bool(notify.held_exits(exits))" in (ROOT / "app" / "scanner.py").read_text())
 
 
 print("\n" + ("=" * 52))
