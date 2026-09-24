@@ -273,31 +273,60 @@ docker compose exec supertrendMoose ls -lah /data
 
 Prices re-download in minutes. **Your recorded positions do not.** They live in the `moose-data` volume.
 
+**Dump the positions table: fully restorable**
+
+This copies just the positions table as SQL. It uses a throwaway Alpine container that installs the sqlite tool, and it mounts the data volume read-only (:ro) so the backup can't change anything:
+
 Backup on Linux:
 
 ```
-mkdir -p ~/supertrendmoose_backups
+mkdir -p "$HOME/supertrendmoose_backups"
 
-docker run --rm -v supertrendmoose_moose-data:/data -v ~/supertrendmoose_backups:/backup alpine \
-  tar czf /backup/moose-db_$(date +%Y%m%d).tar.gz -C /data moose.db
+docker run --rm -v supertrendmoose_moose-data:/data:ro -v "$HOME/supertrendmoose_backups":/backup \
+  alpine sh -c 'apk add -q sqlite && sqlite3 /data/moose.db ".dump positions" > \
+  /backup/positions_$(date +%Y%m%d).sql && grep -c "^INSERT" /backup/positions_$(date +%Y%m%d).sql'
 ```
+The number it prints is how many trades were saved. The file is plain text and only a few KB, so you can open it to check. The date comes from the container, which runs on UTC, so a backup made before 10:00 in Melbourne gets the previous day's date.
 
-Restore on Linux (stop the app first, so the database is not in use):
+To restore just the trades, replacing the current trades and leaving the watchlist, signals and prices alone:
 
 ```
 docker compose stop supertrendMoose
 
-docker run --rm -v supertrendmoose_moose-data:/data -v ~/supertrendmoose_backups:/backup alpine \
-  sh -c 'rm -f /data/moose.db-wal /data/moose.db-shm && tar xzf /backup/moose-db_YYYYMMDD.tar.gz \
-  -C /data && ls -ln /data'
+docker run --rm -v supertrendmoose_moose-data:/data alpine cp -p /data/moose.db /data/moose.db.before-restore
+
+docker run --rm -v supertrendmoose_moose-data:/data -v "$HOME/supertrendmoose_backups":/backup alpine \
+  sh -c 'apk add -q sqlite && awk "/^CREATE TABLE positions/{print \"DROP TABLE IF EXISTS positions;\"}1" \
+  /backup/positions_YYYYMMDD.sql | sqlite3 /data/moose.db && sqlite3 /data/moose.db "SELECT COUNT(*) FROM positions"'
 
 docker compose start supertrendMoose
 ```
+The `awk` step adds a "drop the current table" line inside the dump's own transaction, so the swap is all-or-nothing: if anything fails partway, your current trades are left untouched. The safety copy (`moose.db.before-restore`) covers you if you restore the wrong file. Delete it once you've checked the Earnings tab.
+
+**An older dump restores fine into a newer version of the app.** On startup the app adds any columns introduced since (the commission fields were added this way), and fills them with defaults.
 
 Verify the restore worked:
 
 ```
-docker run --rm -v supertrendmoose_moose-data:/data alpine ls -lah /data
+docker run --rm -v supertrendmoose_moose-data:/data:ro -v "$HOME/supertrendmoose_backups":/backup:ro alpine \
+  sh -c 'apk add -q sqlite && sqlite3 /data/moose.db ".dump positions" | diff /backup/positions_YYYYMMDD.sql - \
+  && echo IDENTICAL'
+```
+
+If anything looks wrong, you can undo the restore with the safety copy:
+
+```
+docker compose stop supertrendMoose
+
+docker run --rm -v supertrendmoose_moose-data:/data alpine sh -c 'cp -p /data/moose.db.before-restore /data/moose.db'
+
+docker compose start supertrendMoose
+```
+
+Clean up once you're satisfied:
+
+```
+docker run --rm -v supertrendmoose_moose-data:/data alpine rm /data/moose.db.before-restore
 ```
 
 A weekly cron entry is enough on a server:
