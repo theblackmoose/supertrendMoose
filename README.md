@@ -339,7 +339,7 @@ mkdir -p "$HOME/supertrendmoose_backups"
 docker run --rm -v supertrendmoose_moose-data:/data:ro -v "$HOME/supertrendmoose_backups":/backup alpine tar czf /backup/moose-db_$(date +%Y%m%d).tar.gz -C /data moose.db
 ```
 
-Restoring rolls **everything** back to the backup date: trades, watchlist and signal history. Prices re-download on their own. To roll back only trades, use the positions dump below instead.
+Restoring rolls **everything** back to the backup date: trades, watchlist and signal history. Prices re-download on their own. To roll back only trades, use the positions dump above instead.
 
 ```
 docker compose stop supertrendMoose
@@ -352,13 +352,13 @@ docker compose start supertrendMoose
 
 `moose.db` should show owner `10001`.
 
-**A weekly cron entry is enough on a server:**
+**A weekly cron entry is enough on a server.** Add it with `crontab -e` as **one line**; cron does not support `\` line continuations:
 
 ```
-0 3 * * 0 mkdir -p /home/<user>/supertrendmoose_backups && docker run --rm -v supertrendmoose_moose-data:/data:ro \
-  -v /home/<user>/supertrendmoose_backups:/backup alpine tar czf /backup/moose-db_$(date +\%Y\%m\%d).tar.gz -C \
-  /data moose.db
+0 3 * * 0 mkdir -p /home/<user>/supertrendmoose_backups && docker run --rm -v supertrendmoose_moose-data:/data:ro -v /home/<user>/supertrendmoose_backups:/backup alpine tar czf /backup/moose-db_$(date +\%Y\%m\%d).tar.gz -C /data moose.db
 ```
+
+If your user needs `sudo` to run Docker, add it to root's crontab instead (`sudo crontab -e`).
 
 ---
 
