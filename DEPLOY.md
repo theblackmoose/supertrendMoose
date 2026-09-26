@@ -401,7 +401,9 @@ Then point a DNS host override at the Caddy host, and set `BASE_URL=https://moos
 
 The scan runs itself after every US close, and a `_catch_up` job checks every 15 minutes whether the stored prices are behind the last finished session and scans if they are. So a machine that was asleep or off catches up on its own, and you rarely need this.
 
-To force it — after a change to the alert settings, or when you want this morning's alert re-sent:
+The dashboard's **Scan now** button does the same. It alerts on any signal that has not been alerted yet, so a signal is never lost because a manual scan happened to find it first, and never sent twice because a scan ran twice on the same bar.
+
+To force it from the command line:
 
 ```
 curl -X POST "http://10.20.0.42:19080/api/scan?send_alerts=true" \
@@ -416,6 +418,8 @@ Invoke-RestMethod -Method Post "http://localhost:19080/api/scan?send_alerts=true
 ```
 
 `send_alerts=true` is the part that matters. Without it the scan runs and updates the dashboard but sends nothing, which is also the default for a cold start — the first scan on an empty database never alerts, because every ticker's last bar would look like a fresh signal and you would get a burst of stale ones.
+
+Each signal is alerted once. To send one again — this morning's alert, say, after fixing a notification channel — add `&resend=true`.
 
 Prices are refreshed first unless you add `&refresh_prices=false`, which re-evaluates the stored bars without going out to Yahoo. Useful for testing an alert format change without waiting on a download.
 
