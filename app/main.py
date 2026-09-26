@@ -1167,8 +1167,11 @@ def earnings_coverage() -> dict:
 
 
 @app.post("/api/scan", dependencies=[Depends(auth)])
-def manual_scan(refresh_prices: bool = True, send_alerts: bool = False) -> dict:
-    result = scanner.run_scan(refresh_prices=refresh_prices, notify_on=send_alerts)
+def manual_scan(refresh_prices: bool = True, send_alerts: bool = False,
+                resend: bool = False) -> dict:
+    """send_alerts sends signals not yet alerted; resend also repeats ones that were."""
+    result = scanner.run_scan(refresh_prices=refresh_prices, notify_on=send_alerts,
+                              resend=resend)
     result["buys"] = [b["ticker"] for b in result["buys"]]
     result["exits"] = [e["ticker"] for e in result["exits"]]
     return result
