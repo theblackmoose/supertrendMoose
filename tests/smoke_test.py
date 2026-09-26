@@ -3638,6 +3638,13 @@ check("Heartbeat is sent once per bar",
       not scanner._heartbeat_due(_date76(2026, 9, 24))
       and scanner._heartbeat_due(_date76(2026, 9, 25)))
 
+check("Scan now alerts, so a manual scan cannot swallow a new signal",
+      "send_alerts=true" in (ROOT / "static" / "app.js").read_text())
+check("resend repeats alerts on purpose",
+      "if resend or not _already_notified" in _src76
+      and "resend=resend" in (ROOT / "app" / "main.py").read_text())
+check("resend is documented", "resend=true" in (ROOT / "DEPLOY.md").read_text())
+
 
 print("\n" + ("=" * 52))
 print("ALL CHECKS PASSED" if not FAILS else f"{len(FAILS)} FAILED: {FAILS}")
