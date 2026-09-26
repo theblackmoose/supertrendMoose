@@ -129,11 +129,30 @@ docker compose down -v
 
 ---
 
+<details>
+  <summary>Click to view screenshots of Dashboard</summary>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312156-cb484379-3295-44fa-9bc5-37185842c31b.png"/>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312326-c867a127-021b-4f78-b45d-205a325fa993.png"/>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312025-d3dfde90-6ce1-4cdb-a10e-5f159aae9e03.png"/>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312028-319304d8-fc91-4523-ae39-a6b0b8f45ad3.png"/>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312026-7ff551e4-9339-459e-8639-892f8cb22aee.png"/>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312748-738dc24f-3265-4199-8231-9e9de2726be6.png"/>
+
+  <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312030-b0f5e939-2806-4188-b8eb-8fc53f8ee924.png"/>
+  
 <!--
   Screenshots go here, in the same style as marketMoose:
   upload the images to static/ and link them as
   [![](https://github.com/theblackmoose/supertrendMoose/raw/main/static/<file>.png)](…)
 -->
+
+</details>
 
 ---
 
