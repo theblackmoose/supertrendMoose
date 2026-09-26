@@ -3610,7 +3610,33 @@ finally:
     notify.BACKENDS.clear(); notify.BACKENDS.update(_orig_backends75)
     notify.settings.notify_channels = _orig_channels75
 check("The scan marks a held sell urgent",
-      "urgent=bool(notify.held_exits(exits))" in (ROOT / "app" / "scanner.py").read_text())
+      "urgent=bool(notify.held_exits(new_exits))" in (ROOT / "app" / "scanner.py").read_text())
+
+
+print("\n76. A rescan of the same bars does not repeat alerts")
+from datetime import date as _date76
+_st76 = {"date": _date76(2026, 9, 24), "passed": True, "reason": "", "close": 1.0,
+         "stop": 1.0, "adx": 20.0, "atr_pct": 2.0, "above_sma": True}
+scanner._record("DUP76", _st76, "EXIT")
+check("A new signal is not yet notified",
+      not scanner._already_notified("DUP76", _st76["date"], "EXIT"))
+scanner._mark_notified([("DUP76", _st76["date"], "EXIT")])
+check("Once alerted, the same bar counts as notified",
+      scanner._already_notified("DUP76", _st76["date"], "EXIT"))
+check("Marking is exact: the other kind on that bar is untouched",
+      not scanner._already_notified("DUP76", _st76["date"], "BUY"))
+scanner._record("DUP76", {**_st76, "date": _date76(2026, 9, 25)}, "EXIT")
+check("Marking is exact: a later bar is still new",
+      not scanner._already_notified("DUP76", _date76(2026, 9, 25), "EXIT"))
+_src76 = (ROOT / "app" / "scanner.py").read_text()
+check("The scan alerts only on signals not already notified",
+      "notify.format_signals(new_buys, new_exits" in _src76)
+check("Heartbeat is due for a bar it has not reported",
+      scanner._heartbeat_due(_date76(2026, 9, 24)))
+scanner._set_heartbeat(_date76(2026, 9, 24))
+check("Heartbeat is sent once per bar",
+      not scanner._heartbeat_due(_date76(2026, 9, 24))
+      and scanner._heartbeat_due(_date76(2026, 9, 25)))
 
 
 print("\n" + ("=" * 52))
