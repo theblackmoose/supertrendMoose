@@ -224,7 +224,9 @@ def daily(positions, closes: dict, starting_cash: float | None = None) -> dict:
     doubles your money reads +100% whatever the account is worth.
       total   the account including what is still held
       closed  the same, with open positions worth exactly what was paid for
-              them, so only sold trades move it
+              them, so only sales and commissions move it. On each sale it is
+              re-aligned with the total, less the unrealised part of anything
+              still held, so once everything is sold the two lines meet.
     A day with no stored price for a held ticker carries the previous close.
     """
     held = [p for p in positions if p.quantity]
@@ -259,6 +261,7 @@ def daily(positions, closes: dict, starting_cash: float | None = None) -> dict:
     prev_total = prev_closed = cash0
     added_today = 0.0
     for d in dates:
+        sold_today = False
         while idx < len(events) and events[idx]["date"] <= d:
             e = events[idx]
             cash += e["cash"]
@@ -266,6 +269,7 @@ def daily(positions, closes: dict, starting_cash: float | None = None) -> dict:
                 lots[e["id"]] = e
             else:
                 lots.pop(e["id"], None)
+                sold_today = True
             # A purchase larger than the account holds was paid for with money
             # you put in. Counting it as capital keeps it out of the return:
             # a deposit is not a profit.
@@ -297,6 +301,13 @@ def daily(positions, closes: dict, starting_cash: float | None = None) -> dict:
             growth_closed *= (closed_only - added_today) / prev_closed
         prev_total, prev_closed = total_value, closed_only
         added_today = 0.0
+        # On a sale, re-align with the total less what is still unrealised.
+        # Chained alone, the closed line measures a gain against the account
+        # on the day of the sale, so a gain made before money was added gets
+        # diluted by that money and the two lines never meet again.
+        if sold_today:
+            growth_closed = growth_total * (closed_only / total_value) \
+                if total_value > 0 else growth_total
         pct_total.append({"time": iso, "value": round(growth_total * 100 - 100, 2)})
         pct_closed.append({"time": iso, "value": round(growth_closed * 100 - 100, 2)})
     return {"balance": balance, "capital": capital_line,
