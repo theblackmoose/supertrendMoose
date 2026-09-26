@@ -286,7 +286,7 @@ docker run --rm -v supertrendmoose_moose-data:/data:ro -v "$HOME/supertrendmoose
   alpine sh -c 'apk add -q sqlite && sqlite3 /data/moose.db ".dump positions" > \
   /backup/positions_$(date +%Y%m%d).sql && grep -c "^INSERT" /backup/positions_$(date +%Y%m%d).sql'
 ```
-The number it prints is how many trades were saved. The file is plain text and only a few KB, so you can open it to check. The date comes from the container, which runs on UTC, so a backup made before 10:00 in Melbourne gets the previous day's date.
+The number it prints is how many trades were saved. The file is plain text and only a few KB, so you can open it to check. The date in the file name comes from the container, which runs on UTC, so it can be a day off from your local date.
 
 To restore just the trades, replacing the current trades and leaving the watchlist, signals and prices alone:
 
@@ -313,6 +313,8 @@ docker run --rm -v supertrendmoose_moose-data:/data:ro -v "$HOME/supertrendmoose
   && echo IDENTICAL'
 ```
 
+If the dump came from an older version, differences are expected; compare the counts instead.
+
 If anything looks wrong, you can undo the restore with the safety copy:
 
 ```
@@ -329,12 +331,33 @@ Clean up once you're satisfied:
 docker run --rm -v supertrendmoose_moose-data:/data alpine rm /data/moose.db.before-restore
 ```
 
-A weekly cron entry is enough on a server:
+**Full database backup (trades, watchlist, tuning, signal history)**
 
 ```
-0 3 * * 0 docker run --rm \
-  -v supertrendmoose_moose-data:/data -v /home/<user>/backups:/backup alpine \
-  tar czf /backup/moose-data_$(date +\%Y\%m\%d).tar.gz -C /data .
+mkdir -p "$HOME/supertrendmoose_backups"
+
+docker run --rm -v supertrendmoose_moose-data:/data:ro -v "$HOME/supertrendmoose_backups":/backup alpine tar czf /backup/moose-db_$(date +%Y%m%d).tar.gz -C /data moose.db
+```
+
+Restoring rolls **everything** back to the backup date: trades, watchlist and signal history. Prices re-download on their own. To roll back only trades, use the positions dump below instead.
+
+```
+docker compose stop supertrendMoose
+
+docker run --rm -v supertrendmoose_moose-data:/data -v "$HOME/supertrendmoose_backups":/backup alpine sh -c \
+  'rm -f /data/moose.db-wal /data/moose.db-shm && tar xzf /backup/moose-db_YYYYMMDD.tar.gz -C /data && ls -ln /data'
+
+docker compose start supertrendMoose
+```
+
+`moose.db` should show owner `10001`.
+
+**A weekly cron entry is enough on a server:**
+
+```
+0 3 * * 0 mkdir -p /home/<user>/supertrendmoose_backups && docker run --rm -v supertrendmoose_moose-data:/data:ro \
+  -v /home/<user>/supertrendmoose_backups:/backup alpine tar czf /backup/moose-db_$(date +\%Y\%m\%d).tar.gz -C \
+  /data moose.db
 ```
 
 ---
