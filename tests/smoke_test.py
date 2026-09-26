@@ -3646,6 +3646,42 @@ check("resend repeats alerts on purpose",
 check("resend is documented", "resend=true" in (ROOT / "DEPLOY.md").read_text())
 
 
+print("\n77. The two return lines meet once everything is sold")
+_f77 = lambda i, t, ed, ep, q, xd, xp: _Fake56(i, t, ed, ep, q, xd, xp, 0.99, 0.99)
+_pos77 = [_f77(1, "GOOGL", date(2026, 4, 2), 290.26, 3, date(2026, 6, 3), 361.26),
+          _f77(2, "MU", date(2026, 4, 10), 420.96, 1.5, date(2026, 6, 8), 941.04),
+          _f77(3, "GOOGL", date(2026, 8, 4), 368.61, 2, date(2026, 9, 10), 328.91)]
+def _path77(pts):
+    out = {}
+    for (d0, v0), (d1, v1) in zip(pts, pts[1:]):
+        d = d0
+        while d <= d1:
+            if d.weekday() < 5:
+                out[d] = v0 + (v1 - v0) * (d - d0).days / max((d1 - d0).days, 1)
+            d += timedelta(days=1)
+    return out
+_cl77 = {"GOOGL": _path77([(date(2026, 4, 2), 290.26), (date(2026, 4, 10), 318.0),
+                           (date(2026, 6, 3), 361.26), (date(2026, 8, 4), 368.61),
+                           (date(2026, 9, 10), 328.91), (date(2026, 9, 25), 330.0)]),
+         "MU": _path77([(date(2026, 4, 10), 420.96), (date(2026, 6, 1), 1000.0),
+                        (date(2026, 6, 8), 941.04), (date(2026, 9, 25), 900.0)])}
+_m77 = _earn56.daily(_pos77, _cl77)
+_t77 = {p["time"]: p["value"] for p in _m77["pct_total"]}
+_c77 = {p["time"]: p["value"] for p in _m77["pct_closed"]}
+check("Money added mid-trade: the lines still meet when all is sold",
+      _t77["2026-09-25"] == _c77["2026-09-25"], f'{_t77["2026-09-25"]} vs {_c77["2026-09-25"]}')
+check("They meet on the day the last position closes",
+      _t77["2026-06-08"] == _c77["2026-06-08"])
+check("A deposit alone does not move the closed-only line",
+      _c77["2026-04-10"] == _c77["2026-05-15"] and _c77["2026-04-10"] < 0)
+check("A partial sale leaves the closed line below the total by the unrealised gain",
+      _c77["2026-06-03"] < _t77["2026-06-03"])
+_hol77 = [_f77(1, "GOOGL", date(2026, 4, 2), 290.26, 3, date(2026, 4, 5), 300.0)]  # Sunday
+_mh77 = _earn56.daily(_hol77, {"GOOGL": _path77([(date(2026, 4, 2), 290.26), (date(2026, 4, 10), 300.0)])})
+check("A sale dated on a day with no bar still re-aligns the line",
+      _mh77["pct_total"][-1]["value"] == _mh77["pct_closed"][-1]["value"])
+
+
 print("\n" + ("=" * 52))
 print("ALL CHECKS PASSED" if not FAILS else f"{len(FAILS)} FAILED: {FAILS}")
 sys.exit(1 if FAILS else 0)
