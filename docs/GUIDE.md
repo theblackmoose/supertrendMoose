@@ -470,7 +470,7 @@ The container-side ports (8000 and 80) are internal to the Docker network and ne
 | `PATCH /api/watchlist/{ticker}` | Change profile, thresholds or enabled state |
 | `POST /api/watchlist/profile?value=<profile>` | Set the filter profile on every ticker at once |
 | `DELETE /api/watchlist/{ticker}` | Remove a ticker |
-| `POST /api/scan` | Run a scan now — `send_alerts=true` to also notify, `refresh_prices=false` to skip the download. See [DEPLOY.md](../DEPLOY.md#running-a-missed-scan-by-hand) |
+| `POST /api/scan` | Run a scan now — `send_alerts=true` to notify on signals not yet alerted, `resend=true` to repeat ones that were, `refresh_prices=false` to skip the download. See [DEPLOY.md](../DEPLOY.md#running-a-missed-scan-by-hand) |
 | `POST /api/refresh-earnings` | Fetch report dates now |
 | `GET /api/earnings-coverage` | How many eligible tickers have report dates |
 | `POST /api/test-notification` | Verify your alert channels |
