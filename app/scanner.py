@@ -7,14 +7,14 @@ profile, persist the signal and (for passing signals) notify.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import pandas as pd
 from sqlalchemy import select
 
 from . import data, market, notify, splits
 from .config import settings
-from .db import Position, ScanRun, Signal, WatchItem, get_session
+from .db import Meta, Position, ScanRun, Signal, WatchItem, get_session
 from .indicators import compute_all, compute_cached
 from .backtest import ADX_RISE_BARS, MARKET_TICKER
 from .watchlist import ADX_ONLY, ADX_RISING, FULL, NONE, REGIME
@@ -450,13 +450,21 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True) -> dict:
             _record(item.ticker, st, "EXIT")
             exits.append(st)
 
+    # A rescan of the same bars must not repeat an alert. That happens more
+    # than it sounds: a manual scan, or catch-up retrying hourly while Yahoo
+    # has not yet filled in the newest bar, both re-evaluate a bar that has
+    # already been alerted on.
+    new_buys = [b for b in buys if not _already_notified(b["ticker"], b["date"], "BUY")]
+    new_exits = [e for e in exits if not _already_notified(e["ticker"], e["date"], "EXIT")]
+
     sent = {}
-    if notify_on and (buys or exits):
-        title, body = notify.format_signals(buys, exits, blocked=blocked,
+    if notify_on and (new_buys or new_exits):
+        title, body = notify.format_signals(new_buys, new_exits, blocked=blocked,
                                             scanned=len(states))
         sent = notify.send(f"SupertrendMoose: {title}", body,
-                           urgent=bool(notify.held_exits(exits)))
-        _mark_notified([b["ticker"] for b in buys] + [e["ticker"] for e in exits])
+                           urgent=bool(notify.held_exits(new_exits)))
+        _mark_notified([(b["ticker"], b["date"], "BUY") for b in new_buys]
+                       + [(e["ticker"], e["date"], "EXIT") for e in new_exits])
 
     with get_session() as s:
         run = s.get(ScanRun, run_id)
@@ -480,9 +488,14 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True) -> dict:
     # every scan, so silence means the alerting is broken rather than calm.
     # Suppressed on a degraded scan, where the alert above has already gone out
     # and "no signals" would be a misleading thing to say.
-    if notify_on and settings.notify_heartbeat and not (buys or exits) and not degraded:
+    # Once per bar, for the same reason as the alerts above.
+    latest_bar = max((st["date"] for st in states), default=None)
+    if notify_on and settings.notify_heartbeat and not (buys or exits) and not degraded \
+            and latest_bar and _heartbeat_due(latest_bar):
         hb_title, hb_body = notify.format_heartbeat(states, failed)
         sent = notify.send(f"SupertrendMoose: {hb_title}", hb_body)
+        if any(sent.values()):
+            _set_heartbeat(latest_bar)
 
     return {
         "tickers": len(states), "buys": buys, "exits": exits,
@@ -506,14 +519,41 @@ def _record(ticker: str, st: dict, kind: str) -> None:
         s.commit()
 
 
-def _mark_notified(tickers: list[str]) -> None:
-    cutoff = date.today() - timedelta(days=7)
+def _already_notified(ticker: str, d: date, kind: str) -> bool:
     with get_session() as s:
-        rows = s.execute(
-            select(Signal).where(Signal.ticker.in_(tickers), Signal.d >= cutoff)
-        ).scalars().all()
-        for r in rows:
-            r.notified = True
+        return bool(s.scalar(
+            select(Signal.notified).where(Signal.ticker == ticker, Signal.d == d,
+                                          Signal.kind == kind)
+        ))
+
+
+def _mark_notified(keys: list[tuple[str, date, str]]) -> None:
+    """Mark exactly the signals that were alerted: (ticker, bar date, kind)."""
+    with get_session() as s:
+        for ticker, d, kind in keys:
+            row = s.scalar(select(Signal).where(Signal.ticker == ticker, Signal.d == d,
+                                                Signal.kind == kind))
+            if row:
+                row.notified = True
+        s.commit()
+
+
+HEARTBEAT_KEY = "heartbeat_bar"
+
+
+def _heartbeat_due(bar: date) -> bool:
+    with get_session() as s:
+        row = s.get(Meta, HEARTBEAT_KEY)
+        return not row or row.value != bar.isoformat()
+
+
+def _set_heartbeat(bar: date) -> None:
+    with get_session() as s:
+        row = s.get(Meta, HEARTBEAT_KEY)
+        if row:
+            row.value = bar.isoformat()
+        else:
+            s.add(Meta(key=HEARTBEAT_KEY, value=bar.isoformat()))
         s.commit()
 
 
