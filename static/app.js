@@ -1467,7 +1467,7 @@
       const btn = $("scanBtn");
       btn.disabled = true; btn.textContent = "Scanning";
       try {
-        const r = await api("/api/scan?refresh_prices=true&send_alerts=false", { method: "POST" });
+        const r = await api("/api/scan?refresh_prices=true&send_alerts=true", { method: "POST" });
         toast(`Scanned ${r.tickers} tickers · ${r.buys.length} buy, ${r.exits.length} sell`
               + (r.failed.length ? ` · ${r.failed.length} fetch failed` : ""));
         await refreshStates(); await refreshHealth();
