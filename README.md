@@ -145,12 +145,6 @@ docker compose down -v
   <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312748-738dc24f-3265-4199-8231-9e9de2726be6.png"/>
 
   <img src="https://github.com/theblackmoose/supertrendMoose/blob/main/static/659312030-b0f5e939-2806-4188-b8eb-8fc53f8ee924.png"/>
-  
-<!--
-  Screenshots go here, in the same style as marketMoose:
-  upload the images to static/ and link them as
-  [![](https://github.com/theblackmoose/supertrendMoose/raw/main/static/<file>.png)](…)
--->
 
 </details>
 
