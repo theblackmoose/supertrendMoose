@@ -406,7 +406,8 @@ def current_states(atr_len: int | None = None, atr_mult: float | None = None,
     return out
 
 
-def run_scan(refresh_prices: bool = True, notify_on: bool = True) -> dict:
+def run_scan(refresh_prices: bool = True, notify_on: bool = True,
+             resend: bool = False) -> dict:
     """Full nightly scan. Returns a summary dict."""
     started = datetime.utcnow()
     _scan_state.update(running=True, started=started.isoformat(),
@@ -454,8 +455,11 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True) -> dict:
     # than it sounds: a manual scan, or catch-up retrying hourly while Yahoo
     # has not yet filled in the newest bar, both re-evaluate a bar that has
     # already been alerted on.
-    new_buys = [b for b in buys if not _already_notified(b["ticker"], b["date"], "BUY")]
-    new_exits = [e for e in exits if not _already_notified(e["ticker"], e["date"], "EXIT")]
+    # resend is for asking again on purpose, from the API.
+    new_buys = [b for b in buys
+                if resend or not _already_notified(b["ticker"], b["date"], "BUY")]
+    new_exits = [e for e in exits
+                 if resend or not _already_notified(e["ticker"], e["date"], "EXIT")]
 
     sent = {}
     if notify_on and (new_buys or new_exits):
