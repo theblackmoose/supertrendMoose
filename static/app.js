@@ -13,6 +13,11 @@
   let selected = null;
   let priceChart, adxChart, candleSeries, stUp, stDown, smaSeries, adxSeries, adxGuide;
   let volumeSeries, earnMarks = [], earnNext = null;
+  // Your recorded buys and sells, drawn at the fill price. On by default,
+  // remembered for this browser session like the MACD timeframe.
+  const TRADES_KEY = "moose_trades";
+  let tradeMarks = [], candleCloses = [], tradesOn = true;
+  try { tradesOn = sessionStorage.getItem(TRADES_KEY) !== "off"; } catch { /* storage blocked */ }
   let pnlChart = null, pctChart = null, pnlSeries, pctSeries, pctClosedSeries;
   let defaultCommission = 0;
   let equityChart, equitySeries = {};
@@ -174,6 +179,12 @@
     // Earnings badges follow the chart as it scrolls, zooms and resizes.
     priceChart.timeScale().subscribeVisibleLogicalRangeChange(placeEarnings);
     priceChart.timeScale().subscribeSizeChange(placeEarnings);
+    // Trades sit at a price as well as a date, so they also follow the price
+    // scale. The library has no event for that; the pointer moving over the
+    // chart is the cue, since dragging the scale always involves it.
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(queueTrades);
+    priceChart.timeScale().subscribeSizeChange(queueTrades);
+    priceChart.subscribeCrosshairMove(queueTrades);
 
     const resize = () => {
       priceChart.applyOptions({ width: $("priceChart").clientWidth, height: $("priceChart").clientHeight });
@@ -216,6 +227,103 @@
       }
     }
     layer.innerHTML = badges.join("");
+  }
+
+  // ── your trades ────────────────────────────────────────
+  // B and S chips at the price you actually paid or got, beside a short tick
+  // across the bar. They are chips rather than the chart's own markers so
+  // they can sit at a price: markers only go above or below a bar, and those
+  // places belong to the Supertrend signals. A dashed line joins each buy to
+  // its sell, coloured by the trade's result after commission.
+  let tradesQueued = false;
+  function queueTrades() {
+    if (tradesQueued) return;
+    tradesQueued = true;
+    requestAnimationFrame(() => { tradesQueued = false; placeTrades(); });
+  }
+
+  const qtyText = (q) => (q == null ? "" : `${fmt(q, q % 1 ? 2 : 0)} `);
+
+  function placeTrades() {
+    const layer = $("tradeLayer");
+    if (!layer || !priceChart) return;
+    if (!tradesOn || !tradeMarks.length) { layer.innerHTML = ""; return; }
+    const ts = priceChart.timeScale();
+    const plotW = ts.width();
+    const plotH = $("priceChart").clientHeight - ts.height();
+    const at = new Map(candleTimes.map((t, i) => [t, i]));
+
+    // A fill's position. Off-range prices (a split since) go on the close.
+    const point = (f) => {
+      const i = at.get(f.time);
+      if (i === undefined) return null;
+      const x = ts.logicalToCoordinate(i);
+      const y = candleSeries.priceToCoordinate(f.off_range ? candleCloses[i] : f.price);
+      return x == null || y == null ? null : { x, y };
+    };
+
+    const lines = [], ticks = [];
+    const chips = new Map();   // one chip per bar and side; lots share it
+    const add = (side, f, p, detail) => {
+      const key = `${side}:${f.time}`;
+      const c = chips.get(key) || { side, p, qty: 0, cost: 0, lots: [], off: false };
+      c.qty += f.qty || 0;
+      c.cost += (f.qty || 0) * (f.off_range ? candleCloses[at.get(f.time)] : f.price);
+      c.lots.push(detail);
+      c.off = c.off || f.off_range;
+      chips.set(key, c);
+    };
+
+    for (const t of tradeMarks) {
+      const b = t.buy && point(t.buy);
+      const s = t.sell && point(t.sell);
+      if (b && s) {
+        const cls = t.net == null ? "flat" : t.net >= 0 ? "win" : "loss";
+        lines.push(`<line class="trade-span ${cls}" x1="${b.x}" y1="${b.y}" x2="${s.x}" y2="${s.y}"/>`);
+      }
+      if (b) {
+        add("buy", t.buy, b, [
+          `Bought ${qtyText(t.buy.qty)}at ${fmt(t.buy.price)} on ${t.buy.date}`,
+          `Commission ${money(t.buy.fee)}`,
+          t.sell ? "" : "Still held",
+          t.buy.off_range ? "Price is outside this day's range, probably a stock split since. Shown at the close." : "",
+        ]);
+      }
+      if (s) {
+        const result = t.net == null ? ""
+          : `Result ${moneyPM(t.net)} (${t.net_pct >= 0 ? "+" : ""}${fmt(t.net_pct)}%) after commission`;
+        add("sell", t.sell, s, [
+          `Sold ${qtyText(t.sell.qty)}at ${fmt(t.sell.price)} on ${t.sell.date}, held ${t.hold_days} days`,
+          `Commission ${money(t.sell.fee)}`,
+          result,
+          t.sell.off_range ? "Price is outside this day's range, probably a stock split since. Shown at the close." : "",
+        ]);
+      }
+    }
+
+    const html = [];
+    for (const c of chips.values()) {
+      const { x } = c.p;
+      // Several lots on one bar: the chip sits at their average price.
+      const y = c.qty && c.lots.length > 1
+        ? (candleSeries.priceToCoordinate(c.cost / c.qty) ?? c.p.y) : c.p.y;
+      if (x < -20 || x > plotW + 20 || y < -20 || y > plotH + 20) continue;
+      ticks.push(`<line class="trade-tick ${c.side}" x1="${x - 5}" y1="${y}" x2="${x + 5}" y2="${y}"/>`);
+      const title = c.lots.map((l) => l.filter(Boolean).join("\n")).join("\n\n");
+      const dx = c.side === "buy" ? -12 : 12;
+      html.push(`<i class="trade-chip ${c.side}${c.off ? " off" : ""}" style="left:${x + dx}px;top:${y}px"`
+        + ` title="${esc(title)}">${c.side === "buy" ? "B" : "S"}</i>`);
+    }
+    layer.innerHTML = `<svg class="trade-lines" width="${plotW}" height="${plotH}">${lines.join("")}${ticks.join("")}</svg>`
+      + html.join("");
+  }
+
+  function setTrades(on) {
+    tradesOn = on;
+    $("tradesToggle").classList.toggle("is-on", on);
+    $("tradesToggle").setAttribute("aria-pressed", on);
+    try { sessionStorage.setItem(TRADES_KEY, on ? "on" : "off"); } catch { /* storage blocked */ }
+    placeTrades();
   }
 
   // Scrolling any pane moves all the others. The MACD pane joins the group
@@ -548,6 +656,8 @@
       volumeSeries.setData(d.volume || []);
       candleTimes = d.candles.map((c) => c.time);
       earnMarks = d.earnings || [];
+      tradeMarks = d.trades || [];
+      candleCloses = d.candles.map((c) => c.close);
       earnNext = d.upcoming_earnings || null;
       stUp.setData(d.supertrend_up);
       stDown.setData(d.supertrend_down);
@@ -578,6 +688,7 @@
 
       chartFor = ticker;
       requestAnimationFrame(placeEarnings);
+      requestAnimationFrame(placeTrades);
       macdFor = null;
       alignScales();
       if (macdOpen) loadMacd(ticker);
@@ -1397,6 +1508,8 @@
     });
 
     $("macdToggle").addEventListener("click", () => setMacd(!macdOpen));
+    $("tradesToggle").addEventListener("click", () => setTrades(!tradesOn));
+    setTrades(tradesOn);
     $("macdTf").value = macdTf;
     $("macdTfLabel").textContent = MACD_TF_NAME[macdTf];
     $("macdTf").addEventListener("change", () => {
