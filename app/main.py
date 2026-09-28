@@ -18,6 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Depends, FastAPI, HTTPException, Header, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -189,6 +190,10 @@ def _startup_scan() -> None:
 
 
 app = FastAPI(title="SupertrendMoose", version="1.0.0", lifespan=lifespan)
+# A chart is ~1.4 MB of JSON for 20 years of bars. Level 1 shrinks it to about
+# a quarter for ~10 ms of CPU; higher levels save little more and cost far more
+# (level 9 took 18 times as long for 20% less).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=1)
 
 
 # ───────────────────────────── models ─────────────────────────────
