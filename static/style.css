@@ -355,6 +355,34 @@ main { display: grid; grid-template-columns: 290px 1fr; height: calc(100% - 48px
 .earn-badge { position: absolute; transform: translateX(-50%); pointer-events: auto; cursor: default; }
 .earn-badge.next { background: transparent; border-style: dashed; color: #c9bdf0; }
 
+/* Your trades: B and S chips at the fill price, a tick across the bar, and a
+   dashed line from each buy to its sell. Same layering rule as the earnings
+   badges: only the chips take the pointer, so the chart still drags. */
+.trade-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+.trade-lines { position: absolute; left: 0; top: 0; overflow: hidden; }
+.trade-span { stroke-width: 1.25; stroke-dasharray: 4 3; opacity: .75; }
+.trade-span.win { stroke: var(--up); }
+.trade-span.loss { stroke: var(--down); }
+.trade-span.flat { stroke: var(--dim); }
+.trade-tick { stroke-width: 2; stroke-linecap: round; }
+.trade-tick.buy { stroke: var(--up); }
+.trade-tick.sell { stroke: var(--down); }
+.trade-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 3px; font: 700 9px/1 var(--sans);
+  font-style: normal; background: var(--bg); border: 1.5px solid;
+}
+.trade-chip.buy { color: var(--up); border-color: var(--up); }
+.trade-chip.sell { color: var(--down); border-color: var(--down); }
+.trade-layer .trade-chip {
+  position: absolute; transform: translate(-50%, -50%);
+  pointer-events: auto; cursor: default;
+}
+.trade-chip.off { border-style: dashed; }
+.legend .trade-key { gap: 3px; }
+.legend .trade-key .trade-chip { width: 12px; height: 12px; font-size: 8px; }
+.legend .trade-key .trade-chip + .trade-chip { margin-right: 2px; }
+
 /* ── tuning ─────────────────────────────────────────────── */
 .tune-note {
   margin: 0; padding: 10px 16px 20px; font-size: 12px; line-height: 1.6;
