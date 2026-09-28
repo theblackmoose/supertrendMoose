@@ -14,7 +14,7 @@ Built for long-only daily-bar swing trading. It never places orders.
 - **Self-generating Credentials:** Passwords and the dashboard token are created inside the containers on first start. Nothing to paste, nothing to commit.
 - **Daily Scanning:** Runs automatically 60 minutes after every US close, wherever you are and whatever daylight saving is doing.
 - **Push Alerts:** A bundled, locked-down ntfy server sends buy and sell signals to your phone. Telegram, Discord and email are also supported.
-- **Interactive Charts:** Candles, Supertrend bands, 200 SMA, volume, earnings badges, an ADX subplot and an optional MACD pane.
+- **Interactive Charts:** Candles, Supertrend bands, 200 SMA, volume, earnings badges, your own buys and sells at the price you traded, an ADX subplot and an optional MACD pane.
 - **Per-ticker Filters:** Five filter profiles, assigned per ticker rather than as one blanket rule.
 - **Position Tracking:** Record what you actually bought, with live P&L, risk-to-stop, commission and a risk-based position sizer.
 - **Backtesting & Tuning:** Every profile against buy-and-hold per ticker, plus walk-forward parameter validation.
