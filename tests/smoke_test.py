@@ -1515,10 +1515,9 @@ check("Manual refresh endpoint present",
       client.post("/api/refresh-earnings").status_code == 200)
 
 # With report dates seeded, coverage must flip to active.
-from app.db import EarningsDate as _ED45  # noqa: E402
-with get_session() as _s45:
-    _s45.add(_ED45(ticker="NVDA", d=date(2026, 7, 17)))
-    _s45.commit()
+# Through store_earnings, which skips a date already stored: the synthetic
+# calendar is built from today's date and can land on this one (see 43).
+data.store_earnings("NVDA", [date(2026, 7, 17)])
 check("Blackout reads as active once dates exist",
       scanner.earnings_coverage()["blackout_active"] is True)
 check("Health agrees", client.get("/api/health").json()["blackout_active"] is True)
@@ -3680,6 +3679,57 @@ _hol77 = [_f77(1, "GOOGL", date(2026, 4, 2), 290.26, 3, date(2026, 4, 5), 300.0)
 _mh77 = _earn56.daily(_hol77, {"GOOGL": _path77([(date(2026, 4, 2), 290.26), (date(2026, 4, 10), 300.0)])})
 check("A sale dated on a day with no bar still re-aligns the line",
       _mh77["pct_total"][-1]["value"] == _mh77["pct_closed"][-1]["value"])
+
+
+print("\n78. Your trades on the chart")
+from app.db import Position as _Pos78  # noqa: E402
+_df78 = data.load("NVDA")
+_i78 = _df78.index
+_c78 = lambda k: round(float(_df78["close"].iloc[k]), 2)  # noqa: E731
+_sat78 = _i78[-30].date() + timedelta(days=(5 - _i78[-30].weekday()) % 7)  # a Saturday
+with get_session() as _s78:
+    _s78.add_all([
+        _Pos78(ticker="NVDA", entry_date=_i78[-60].date(), entry_price=_c78(-60), quantity=2,
+               exit_date=_i78[-40].date(), exit_price=_c78(-40), entry_fee=1.0, exit_fee=1.0),
+        _Pos78(ticker="NVDA", entry_date=_sat78, entry_price=_c78(-29), quantity=1, entry_fee=1.0),
+        _Pos78(ticker="NVDA", entry_date=_i78[-10].date(), entry_price=_c78(-10) * 10, quantity=1,
+               exit_date=_i78[-5].date(), exit_price=_c78(-5) * 10, entry_fee=0.5, exit_fee=0.5),
+    ])
+    _s78.commit()
+try:
+    _ch78 = client.get("/api/chart/NVDA").json()
+    _tr78 = _ch78["trades"]
+    check("The chart returns your trades for the ticker", len(_tr78) == 3, str(len(_tr78)))
+    _closed78 = _tr78[0]
+    check("A fill sits on its own bar at the price you paid",
+          _closed78["buy"]["time"] == _i78[-60].strftime("%Y-%m-%d")
+          and _closed78["buy"]["price"] == _c78(-60) and not _closed78["buy"]["off_range"])
+    _rep78 = client.get("/api/earnings").json()
+    _row78 = next(t for t in _rep78["trades"] if t["id"] == _closed78["id"])
+    check("A trade's result matches the Earnings tab exactly",
+          _closed78["net"] == _row78["net"] and _closed78["net_pct"] == _row78["net_pct"],
+          f'{_closed78["net"]} vs {_row78["net"]}')
+    _open78 = _tr78[1]
+    check("A weekend order lands on the next trading day",
+          _open78["buy"]["time"] > _sat78.isoformat() and _open78["buy"]["date"] == _sat78.isoformat())
+    check("An open position has a buy and no sell", _open78["sell"] is None and "net" not in _open78)
+    check("A price far outside the bar's range is flagged, not plotted off-scale",
+          _tr78[2]["buy"]["off_range"] and _tr78[2]["sell"]["off_range"])
+    check("Another ticker's chart has none of them",
+          client.get("/api/chart/XOM").json().get("trades") == [])
+finally:
+    with get_session() as _s78:
+        _s78.query(_Pos78).filter(_Pos78.ticker == "NVDA").delete()
+        _s78.commit()
+_js78 = (ROOT / "static" / "app.js").read_text()
+_h78 = (ROOT / "static" / "index.html").read_text()
+check("The chart draws them and they can be hidden",
+      "function placeTrades()" in _js78 and 'id="tradesToggle"' in _h78
+      and 'id="tradeLayer"' in _h78 and "setTrades(!tradesOn)" in _js78)
+check("They follow the price scale as well as the time scale",
+      "subscribeCrosshairMove(queueTrades)" in _js78 and "priceToCoordinate" in _js78)
+check("The legend tells your trades from the signals",
+      "Your trades" in _h78 and "Sell signal" in _h78)
 
 
 print("\n" + ("=" * 52))
