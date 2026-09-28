@@ -3732,6 +3732,27 @@ check("The legend tells your trades from the signals",
       "Your trades" in _h78 and "Sell signal" in _h78)
 
 
+print("\n79. The chart loads quickly")
+_r79 = client.get("/api/chart/NVDA?bars=5000", headers={"Accept-Encoding": "gzip"})
+check("Chart data is compressed on the wire",
+      _r79.headers.get("content-encoding") == "gzip", str(_r79.headers.get("content-encoding")))
+check("Compressed, it still decodes to the full chart", len(_r79.json()["candles"]) > 500)
+check("Compression uses the fast level",
+      "compresslevel=1" in (ROOT / "app" / "main.py").read_text())
+_js79 = (ROOT / "static" / "app.js").read_text()
+check("On the Chart tab a new range only moves the view",
+      '$("range").addEventListener("change", rangeChanged)' in _js79
+      and 'if (view === "chart" && lastChart && chartFor === selected)' in _js79)
+check("Recently viewed charts are reused", "function getChart(ticker)" in _js79
+      and "const d = await getChart(ticker);" in _js79)
+check("Any change made from the dashboard clears them",
+      'if (opts.method && opts.method !== "GET") chartCache.clear();' in _js79)
+check("A new scan clears them", "if (h.last_scan !== seenScan) { chartCache.clear();" in _js79)
+check("A failed fetch is not remembered", "p.catch(() => { if (chartCache.get(key) === entry) chartCache.delete(key); });" in _js79)
+check("A slow response cannot overwrite a newer pick", "if (selected !== ticker) return;" in _js79)
+check("Hovering a ticker starts loading it", '$("railList").addEventListener("mouseover"' in _js79)
+
+
 print("\n" + ("=" * 52))
 print("ALL CHECKS PASSED" if not FAILS else f"{len(FAILS)} FAILED: {FAILS}")
 sys.exit(1 if FAILS else 0)
