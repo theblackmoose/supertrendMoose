@@ -62,6 +62,10 @@ Badges only appear once earnings dates have been fetched (the header warns when 
 
 Yahoo often posts an estimated report date and corrects it later. Each earnings refresh drops a stored date that Yahoo no longer lists, but only when Yahoo lists a different report within 45 days of it (the estimate moved). A date with no nearby replacement is kept, so a gap in Yahoo's data cannot delete a real report. The same rule clears *Next earnings* when a company reported earlier than its estimate, so the live blackout stops blocking entries for a report that has already happened. The refresh log and the `/api/refresh-earnings` result show how many dates were dropped (`pruned`).
 
+### Your trades
+
+The **Trades** button shows your own recorded orders on the price chart: a **B** or **S** chip at the price you actually traded, with a tick across that day's bar, and a dashed line from each buy to its sell, green if the trade made money after commission and red if it lost. Hover a chip for the quantity, price, commission and, on a sell, the result, which is the same figure the Earnings tab shows. Several lots bought or sold on the same day share one chip, placed at their average price. An order dated on a weekend or holiday goes on the next trading day. A chip with a dashed outline means the recorded price is far outside that day's range, usually because of a stock split since, so it is drawn at the close instead. The button is on by default and remembered for the browser session. These chips are your trades; the arrows above and below the bars are the Supertrend signals.
+
 ### Momentum (MACD, optional pane)
 
 The **MACD** button beside Position adds a 12/26/9 MACD pane under the ADX pane; click it again to hide it. It is off by default, and its data is only fetched while it is open (`GET /api/macd/{ticker}?timeframe=D|W`).
