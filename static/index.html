@@ -41,6 +41,8 @@
         </div>
         <button id="posToggle" class="tab pos-btn" type="button"
                 title="Record what you actually bought">Position</button>
+        <button id="tradesToggle" class="tab opt-btn is-on" type="button" aria-pressed="true"
+                title="Show your recorded buys and sells on the chart, at the price you traded">Trades</button>
         <button id="macdToggle" class="tab opt-btn" type="button" aria-pressed="false"
                 title="Show a MACD momentum pane under the chart (display only, not used by any filter)">MACD</button>
         <select id="macdTf" class="opt-select" hidden
@@ -90,12 +92,14 @@
           <span><i class="sw mark-buy"></i>Signal taken</span>
           <span><i class="sw mark-skip"></i>Signal filtered out</span>
           <span><i class="sw mark-earn"></i>Blocked by earnings</span>
-          <span><i class="sw mark-exit"></i>Sell</span>
+          <span><i class="sw mark-exit"></i>Sell signal</span>
           <span><i class="sw vol"></i>Volume</span>
           <span><i class="earn-key">E</i>Earnings</span>
+          <span class="trade-key"><i class="trade-chip buy">B</i><i class="trade-chip sell">S</i>Your trades</span>
         </div>
         <div id="priceChart" class="pane"></div>
         <div id="earnLayer" class="earn-layer" aria-label="Earnings dates"></div>
+        <div id="tradeLayer" class="trade-layer" aria-label="Your trades"></div>
       </div>
       <div class="pane-wrap pane-adx">
         <span class="pane-label">Trend strength (ADX) <em id="adxNow"></em></span>
