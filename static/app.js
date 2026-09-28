@@ -50,6 +50,7 @@
   // Track what each view is currently showing so we never redraw needlessly
   // and never leave a stale chart behind a tab.
   let chartFor = null, testFor = null, tuneFor = null;
+  let lastChart = null;   // the chart response on screen, for re-windowing
   let posOpen = false;
   // MACD is display only and off by default; its chart is built on first open.
   let macdOpen = false, macdChart = null, macdLine, macdSignal, macdHist;
@@ -74,7 +75,36 @@
   const TOKEN_KEY = "moose_token";
   const token = () => sessionStorage.getItem(TOKEN_KEY) || "";
 
+  // Recently viewed charts, so going back to one is instant. Any change made
+  // from the dashboard goes through api() as a non-GET request and clears it;
+  // a new scan clears it via refreshHealth; and nothing is kept past CHART_TTL.
+  const chartCache = new Map();
+  const CHART_CACHE_MAX = 6, CHART_TTL = 5 * 60 * 1000;
+  let seenScan;
+  // Entries are promises, so a click during a hover prefetch shares that
+  // request instead of starting a second one.
+  const chartParams = () => new URLSearchParams({
+    atr_len: $("atrLen").value, atr_mult: $("atrMult").value,
+    adx_min: $("adxMin").value, bars: MAX_BARS,
+  });
+  function getChart(ticker) {
+    const key = `${ticker}?${chartParams()}`;
+    const hit = chartCache.get(key);
+    if (hit && Date.now() - hit.at <= CHART_TTL) {
+      chartCache.delete(key); chartCache.set(key, hit);   // most recent last
+      return hit.p;
+    }
+    const p = api(`/api/chart/${ticker}?${chartParams()}`);
+    const entry = { p, at: Date.now() };
+    chartCache.set(key, entry);
+    // A failed fetch is not remembered; the next attempt asks again.
+    p.catch(() => { if (chartCache.get(key) === entry) chartCache.delete(key); });
+    while (chartCache.size > CHART_CACHE_MAX) chartCache.delete(chartCache.keys().next().value);
+    return p;
+  }
+
   async function api(path, opts = {}) {
+    if (opts.method && opts.method !== "GET") chartCache.clear();
     const headers = { ...(opts.headers || {}) };
     if (token()) headers["X-Auth-Token"] = token();
     const res = await fetch(path, { ...opts, headers });
@@ -618,6 +648,21 @@
     if (view === "tune") loadTune(ticker); else tuneFor = null;
   }
 
+  // The chart already holds every bar, and the rail ranking does not depend
+  // on the range, so on the Chart tab a new range only moves the view. The
+  // Backtest and Tune tabs do depend on it and reload as before.
+  function rangeChanged() {
+    if (view === "chart" && lastChart && chartFor === selected) {
+      const total = lastChart.candles.length;
+      const from = Math.max(total - Math.min(range().bars, total), lastChart.warmup_bars || 0);
+      applyRange({ from, to: total - 1 });
+      holdRange();
+      testFor = tuneFor = null;   // stale for the new range if opened later
+      return;
+    }
+    reloadAll();
+  }
+
   function reloadAll() {
     if (!selected) return;
     chartFor = testFor = tuneFor = null;
@@ -641,12 +686,10 @@
 
   async function loadChart(ticker) {
     selected = ticker;
-    const params = new URLSearchParams({
-      atr_len: $("atrLen").value, atr_mult: $("atrMult").value,
-      adx_min: $("adxMin").value, bars: MAX_BARS,
-    });
     try {
-      const d = await api(`/api/chart/${ticker}?${params}`);
+      const d = await getChart(ticker);
+      if (selected !== ticker) return;   // another ticker was picked meanwhile
+      lastChart = d;
       $("chartName").textContent = d.name || d.ticker;
       $("chartTicker").textContent = d.ticker;
       $("chartSector").textContent = d.sector || "";
@@ -1410,6 +1453,7 @@
   async function refreshHealth() {
     try {
       const h = await api("/api/health");
+      if (h.last_scan !== seenScan) { chartCache.clear(); seenScan = h.last_scan; }
       const through = h.data_through
         ? `data through ${new Date(h.data_through + "T00:00:00").toLocaleDateString()}`
         : "no data yet";
@@ -1466,6 +1510,17 @@
     buildCharts();
     buildEquityChart();
 
+    // Start loading a ticker's chart while the pointer rests on it, so most of
+    // the wait is over by the time it is clicked. A pass across the list does
+    // not fetch everything: it has to stay put for a moment first.
+    let hoverTimer;
+    $("railList").addEventListener("mouseover", (e) => {
+      const row = e.target.closest("[data-t]");
+      clearTimeout(hoverTimer);
+      if (!row || row.dataset.t === selected) return;
+      hoverTimer = setTimeout(() => getChart(row.dataset.t).catch(() => {}), 120);
+    });
+    $("railList").addEventListener("mouseleave", () => clearTimeout(hoverTimer));
     $("railList").addEventListener("click", (e) => {
       const row = e.target.closest(".row");
       if (row) select(row.dataset.t);
@@ -1481,7 +1536,7 @@
       $(id).addEventListener("change", reloadSoon);
       $(id).addEventListener("input", reloadSoon);
     });
-    $("range").addEventListener("change", reloadAll);
+    $("range").addEventListener("change", rangeChanged);
     $("tabChart").addEventListener("click", () => setView("chart"));
     $("tabTest").addEventListener("click", () => setView("test"));
     $("tabTune").addEventListener("click", () => setView("tune"));
