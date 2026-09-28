@@ -326,6 +326,49 @@ def states(
     return scanner.current_states(atr_len, atr_mult, adx_min)
 
 
+def _fill(when: date, price: float, qty: float | None, fee: float,
+          index: pd.DatetimeIndex, times: list[str],
+          lows, highs) -> dict | None:
+    """One order placed on its bar: the first bar on or after its date, so a
+    weekend or holiday date still lands on a bar. None if off the chart."""
+    pos = int(index.searchsorted(pd.Timestamp(when)))
+    if pos >= len(times) or when < index[0].date():
+        return None
+    # Far outside the bar's range usually means a split since: the chart's
+    # history is split-adjusted, the recorded price is not.
+    off = not (lows[pos] * 0.98 <= price <= highs[pos] * 1.02)
+    return {"time": times[pos], "date": when.isoformat(), "price": price,
+            "qty": qty, "fee": round(fee or 0.0, 2), "off_range": bool(off)}
+
+
+def trade_marks(ticker: str, index: pd.DatetimeIndex, times: list[str],
+                lows, highs) -> list[dict]:
+    """Your recorded buys and sells for the chart, oldest first.
+
+    Closed trades take their figures from earnings._trade, so the chart and
+    the Earnings tab cannot disagree about a trade's result.
+    """
+    with get_session() as s:
+        rows = s.execute(select(Position).where(Position.ticker == ticker)
+                         .order_by(Position.entry_date, Position.id)).scalars().all()
+    out = []
+    for p in rows:
+        buy = _fill(p.entry_date, p.entry_price, p.quantity, p.entry_fee,
+                    index, times, lows, highs)
+        sell = None
+        result = {}
+        if p.exit_date and p.exit_price is not None:
+            sell = _fill(p.exit_date, p.exit_price, p.quantity, p.exit_fee,
+                         index, times, lows, highs)
+            t = earnings._trade(p)
+            result = {"net": t["net"], "net_pct": t["net_pct"],
+                      "gross_pct": t["gross_pct"], "hold_days": t["hold_days"]}
+        if buy is None and sell is None:
+            continue
+        out.append({"id": p.id, "buy": buy, "sell": sell, **result})
+    return out
+
+
 @app.get("/api/chart/{ticker}", dependencies=[Depends(auth)])
 def chart(
     ticker: str,
@@ -475,6 +518,9 @@ def chart(
         "state": state,
         "earnings_known": len(earnings),
         "candles": candles, "volume": volume, "markers": markers,
+        "trades": trade_marks(ticker, ind.index, times,
+                              ind["low"].to_numpy(dtype=float),
+                              ind["high"].to_numpy(dtype=float)),
         "supertrend_up": series("supertrend", dir_arr == -1),
         "supertrend_down": series("supertrend", dir_arr == 1),
         "sma": series("sma"),
