@@ -158,7 +158,7 @@ SMTP_TLS=true
 
 **4. Put the password in the secrets volume, not in `.env`.** This is the step worth taking. `.env` sits on the host filesystem and its contents show up in `docker inspect` and `docker compose config` — the output people paste when asking for help. The secrets volume never touches the host.
 
-Run this from the folder containing `docker-compose.yml`. The prompt runs on the host, where hidden input is reliable, and `moose-set-smtp-pass` inside the container stores what it receives:
+Run this from the folder containing `docker-compose.yml`. The prompt runs on the host, where hidden input is reliable, and `moose-set-smtp-pass` inside the container stores what it receives as `/secrets/smtp.pass` in the secrets volume:
 
 **Linux / macOS (bash or zsh):**
 
