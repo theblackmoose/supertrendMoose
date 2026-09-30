@@ -70,6 +70,8 @@ TZ=Australia/Melbourne
 
 The dashboard token is generated for you — step 6 shows how to print it.
 
+Both services speak plain HTTP on that address, so the token crosses that network unencrypted. On a VLAN you trust that is defensible. To encrypt it, see **Encrypting access (HTTPS)** below.
+
 ### 5. Start it
 
 ```
@@ -156,36 +158,38 @@ SMTP_TLS=true
 
 **4. Put the password in the secrets volume, not in `.env`.** This is the step worth taking. `.env` sits on the host filesystem and its contents show up in `docker inspect` and `docker compose config` — the output people paste when asking for help. The secrets volume never touches the host.
 
-Run this from the folder containing `docker-compose.yml`. The prompt runs on the host, where hidden input is reliable, and the password is piped into the container with no terminal attached:
+Run this from the folder containing `docker-compose.yml`. The prompt runs on the host, where hidden input is reliable, and `moose-set-smtp-pass` inside the container stores what it receives:
 
 **Linux / macOS (bash or zsh):**
 
 ```bash
-read -rsp 'App password: ' p; echo; printf '%s' "$p" | docker compose exec -T ntfyMoose sh -c 'tr -d [:space:] > /secrets/smtp.pass && chown 10001 /secrets/smtp.pass && chmod 600 /secrets/smtp.pass && echo Saved $(wc -c < /secrets/smtp.pass) characters, expect 16'; unset p
+read -rsp 'App password: ' p; echo; printf '%s' "$p" | docker compose exec -T ntfyMoose moose-set-smtp-pass; unset p
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-$p = Read-Host -AsSecureString 'App password'; [Net.NetworkCredential]::new('', $p).Password | docker compose exec -T ntfyMoose sh -c 'tr -d [:space:] > /secrets/smtp.pass && chown 10001 /secrets/smtp.pass && chmod 600 /secrets/smtp.pass && echo Saved $(wc -c < /secrets/smtp.pass) characters, expect 16'; Remove-Variable p
+$p = Read-Host -AsSecureString 'App password'; [Net.NetworkCredential]::new('', $p).Password | docker compose exec -T ntfyMoose moose-set-smtp-pass; Remove-Variable p
 ```
 
-Paste the app password at the prompt — nothing is shown — and press **Enter once**. You should see `Saved 16 characters, expect 16`. Spaces are stripped, so Google's `abcd efgh ijkl mnop` format is fine as pasted. Any other count means the paste went wrong; run it again.
+Paste the app password at the prompt — nothing is shown — and press **Enter once**. You should see `Saved 16 characters`. Spaces are stripped, so Google's `abcd efgh ijkl mnop` format is fine as pasted. For Gmail, any other count means the paste went wrong; run it again. It replaces any password stored before.
+
+If your mail provider's password really contains spaces, add `--keep-spaces` after `moose-set-smtp-pass`; then only line breaks are removed.
 
 Why this form:
 
 - **The password never appears on a command line**, so it stays out of your shell history.
-- **Do not use `docker compose exec` without `-T` and type into the container.** The container's terminal handles hidden input badly through `exec`: it can echo the password, swallow keystrokes and save a partial or empty file.
+- **`-T` is required.** The container's terminal handles hidden input badly through `exec`: it can echo the password, swallow keystrokes and save a partial value. `moose-set-smtp-pass` refuses to read from a terminal for that reason, and prints the right command instead.
 - **If the command errors immediately** (for example "no configuration file provided" because you are in the wrong folder), nothing was saved. Nothing you type afterwards reaches the container either, so check your shell history for a stray password and remove it (`history -d <line>`).
-- **The `chown` matters:** the app runs as uid 10001 and cannot read a root-owned file at mode 600.
+- **The file is handed to the app's user** (uid 10001) at mode 600, and written in full before it replaces the old one, so a failed run never leaves a half-written password behind.
 
 To confirm it without printing it:
 
 ```bash
-docker compose exec ntfyMoose ls -ln /secrets/smtp.pass
+docker compose exec ntfyMoose moose-creds
 ```
 
-Expect `-rw-------`, owner `10001`, size `16`.
+Expect `smtp password   stored (16 characters)`.
 
 Then restart the app so it reads the password — it is loaded once at startup:
 
@@ -203,7 +207,9 @@ To check from the server:
 timeout 5 bash -c '</dev/tcp/smtp.gmail.com/587' && echo open || echo blocked
 ```
 
-  `SMTP_PASS` in `.env` still works and still takes precedence, so an existing setup keeps running unchanged. The volume is simply the better place for it. To move an existing password across, write the file as above and delete the `SMTP_PASS` line from `.env`.
+  `SMTP_PASS` in `.env` still works and still takes precedence, so an existing setup keeps running unchanged. The volume is simply the better place for it. To move an existing password across, store it as above, delete the `SMTP_PASS` line from `.env`, then run `docker compose up -d --force-recreate supertrendMoose`.
+
+  To remove a stored password: `docker compose exec ntfyMoose moose-set-smtp-pass --clear`, then recreate the app the same way. `docker compose down -v` also deletes it, along with everything else in the volumes.
 
 ### Running email as your only channel
 
@@ -265,6 +271,10 @@ Allow outbound from the server:
 Nothing else outbound is required, and nothing inbound from the internet.
 
 If the phone sits on a guest or IoT VLAN that cannot reach services, either move it or add the single 19081 rule. ntfy will not work over the internet in this setup, which is deliberate: it stays on the LAN.
+
+If email is your only alert channel, nothing needs to reach ntfy from outside: set `NTFY_BIND=127.0.0.1` in `.env` and skip the 19081 rule. The app still reaches ntfy over Docker's internal network.
+
+With Tailscale Serve (see **Encrypting access (HTTPS)**), neither inbound rule is needed: both ports stay on loopback and traffic arrives over Tailscale.
 
 ---
 
@@ -381,17 +391,83 @@ Your `.env` is not tracked by git, so `git pull` never touches it. Your data sta
 
 ---
 
-## 🔐 Optional: a hostname and TLS
+## 🔐 Encrypting access (HTTPS)
 
-Plain HTTP on a trusted VLAN is defensible. If you would rather have `https://moose.lab.internal`, put Caddy in front — it issues an internal certificate automatically:
+The dashboard and ntfy speak plain HTTP. Whatever sits between your device and the server can read the dashboard token and your alerts, so how much this matters depends on how you reach it:
+
+| How you reach it | What is encrypted |
+| ---------------- | ----------------- |
+| Default (`HOST_IP` blank) | Nothing leaves the machine, so there is nothing to intercept. |
+| `HOST_IP` set to a LAN address | Nothing. The token crosses the LAN in cleartext. |
+| A VPN that ends on your firewall (a Tailscale subnet router or WireGuard on pfSense/OPNsense) | Your device to the firewall. The last hop, firewall to server, is plain HTTP on the server's VLAN. |
+| `HOST_IP` set to this machine's Tailscale IP | All of it — WireGuard encrypts it end to end — but see the note below. |
+| Tailscale Serve | All of it, with a real HTTPS certificate. Recommended. |
+
+### Recommended: Tailscale Serve
+
+The app stays on `127.0.0.1`, and Tailscale publishes it to your tailnet at `https://<machine>.<tailnet>.ts.net` with a certificate it issues and renews itself. Only devices signed in to your tailnet can reach it.
+
+It needs Tailscale on the machine running SupertrendMoose — the Docker host itself, not a container — and on each device you use it from.
+
+**1.** In the Tailscale admin console, under **DNS**, enable **MagicDNS** and **HTTPS Certificates**. The machine's full name, `<machine>.<tailnet>.ts.net`, is shown on its page under **Machines**.
+
+**2.** In `.env`, keep both services on loopback and point alert links at the new name:
+
+```
+HOST_IP=127.0.0.1
+BASE_URL=https://<machine>.<tailnet>.ts.net
+```
+
+```
+docker compose up -d
+```
+
+**3.** Publish the dashboard:
+
+```
+sudo tailscale serve --bg --https=443 http://127.0.0.1:19080
+```
+
+Use `127.0.0.1`, not `localhost`: Docker listens on IPv4 loopback only, and `localhost` can resolve to the IPv6 `::1`. `--bg` keeps it running in the background and across reboots. The first request can take a minute while the certificate is issued.
+
+Open `https://<machine>.<tailnet>.ts.net` and paste the dashboard token as before. `tailscale serve status` shows what is published; `sudo tailscale serve --https=443 off` removes it.
+
+**4. Only if you use the ntfy phone app:** publish ntfy on a second port, and tell the app its new address:
+
+```
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:19081
+```
+
+In `.env`, add `NTFY_PUBLIC_URL=https://<machine>.<tailnet>.ts.net:8443`, run `docker compose up -d`, then re-add the server in the ntfy app with that address. The phone needs Tailscale connected to receive alerts. If email is your only channel, skip this step: ntfy stays on loopback and the app still reaches it internally.
+
+### Behind a VPN on your firewall
+
+If you already reach the server through a VPN that ends on the firewall, leaving `HOST_IP` on the LAN address is a reasonable setup: only the last hop is unencrypted. Keep that hop contained:
+
+- Allow 19080 (and 19081, if you use ntfy) to the server **from the VPN interface only**, not from your other VLANs. Otherwise a device on another VLAN can reach the plain HTTP ports directly.
+- Keep the server's VLAN to hosts you trust, since anything able to see traffic on it could read the token.
+
+For end-to-end encryption on top of that, add Tailscale Serve on the server as above.
+
+### Why not set `HOST_IP` to the Tailscale IP?
+
+It works, and the traffic is encrypted. The catch is start-up order: after a reboot, Docker can start the containers before Tailscale has brought its address up, and they then fail with `cannot assign requested address` and can stay down until you start them by hand. Serve avoids that, because loopback always exists. It also gives a real `https://` address, which the Tailscale IP does not.
+
+### Alternative: Caddy
+
+If you would rather use your own name, such as `https://moose.lab.internal`, put Caddy in front. It issues an internal certificate automatically:
 
 ```
 moose.lab.internal {
-    reverse_proxy 10.20.0.42:19080
+    reverse_proxy 127.0.0.1:19080
 }
 ```
 
-Then point a DNS host override at the Caddy host, and set `BASE_URL=https://moose.lab.internal` in `.env` so alert links use it. Keep the ntfy port as it is, or proxy it the same way and set `NTFY_PUBLIC_URL` to match: the phone must be able to resolve and reach whatever you put there.
+Then point a DNS host override at the Caddy host, and set `BASE_URL=https://moose.lab.internal` in `.env` so alert links use it.
+
+- **Run Caddy on the same host and set `HOST_IP=127.0.0.1`,** as in the example. If you leave `HOST_IP` on the LAN address, the plain HTTP port stays open beside the HTTPS one and nothing has really changed.
+- **Every device must trust Caddy's internal root certificate,** or browsers show a warning each time. Install it once on each device you use.
+- Keep the ntfy port as it is, or proxy it the same way and set `NTFY_PUBLIC_URL` to match: the phone must be able to resolve, reach and trust whatever you put there.
 
 ---
 

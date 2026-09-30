@@ -1,0 +1,85 @@
+#!/bin/sh
+# Stores the SMTP password in the secrets volume, where the app reads it.
+#
+# It reads the password from a pipe, never a terminal: prompt on the host,
+# where hidden input is reliable, and pipe it in with `exec -T`. From the
+# folder containing docker-compose.yml:
+#
+#   bash / zsh:
+#     read -rsp 'App password: ' p; echo; printf '%s' "$p" | docker compose exec -T ntfyMoose moose-set-smtp-pass; unset p
+#
+#   Windows PowerShell:
+#     $p = Read-Host -AsSecureString 'App password'; [Net.NetworkCredential]::new('', $p).Password | docker compose exec -T ntfyMoose moose-set-smtp-pass; Remove-Variable p
+#
+# Options:
+#   --keep-spaces  keep spaces inside the password (only line breaks are
+#                  removed). By default all whitespace is stripped, so a
+#                  Gmail app password pasted as "abcd efgh ijkl mnop" works.
+#   --clear        delete the stored password.
+
+SECRETS="${SECRETS_DIR:-/secrets}"
+FILE="$SECRETS/smtp.pass"
+APP_UID=10001            # the app's user; see Dockerfile
+RESTART="docker compose up -d --force-recreate supertrendMoose"
+
+die() {
+  echo "moose-set-smtp-pass: $1" >&2
+  exit 1
+}
+
+usage() {
+  echo "usage: <password on stdin> | docker compose exec -T ntfyMoose moose-set-smtp-pass [--keep-spaces]" >&2
+  echo "       docker compose exec ntfyMoose moose-set-smtp-pass --clear" >&2
+  exit 2
+}
+
+KEEP_SPACES=0
+case "${1:-}" in
+  "")            ;;
+  --keep-spaces) KEEP_SPACES=1 ;;
+  --clear)
+    rm -f "$FILE" || die "could not remove $FILE"
+    echo "Removed the stored SMTP password."
+    echo "Restart the app so it stops using it:  $RESTART"
+    exit 0 ;;
+  *) usage ;;
+esac
+
+# Typing into the container through `docker compose exec` is unreliable: its
+# terminal can echo the password, drop keystrokes and save a partial value.
+if [ -t 0 ]; then
+  die "the password must be piped in, not typed here.
+  Run this on the host instead, from the folder containing docker-compose.yml:
+    read -rsp 'App password: ' p; echo; printf '%s' \"\$p\" | docker compose exec -T ntfyMoose moose-set-smtp-pass; unset p"
+fi
+
+[ -d "$SECRETS" ] || die "$SECRETS does not exist. Is the moose-secrets volume mounted?"
+
+# Written beside the target and renamed into place, so a failure part-way
+# never leaves a truncated password where the app would read it.
+TMP="$FILE.tmp.$$"
+trap 'rm -f "$TMP"' EXIT INT TERM
+umask 077
+
+if [ "$KEEP_SPACES" = 1 ]; then
+  tr -d '\r\n' > "$TMP" || die "could not write $TMP"
+else
+  tr -d '[:space:]' > "$TMP" || die "could not write $TMP"
+fi
+
+[ -s "$TMP" ] || die "nothing was received, so nothing was saved.
+  If the prompt was skipped, check your shell history for a stray password."
+
+# The app runs as uid 10001 and cannot read a root-owned file at mode 600.
+chown "$APP_UID" "$TMP" 2>/dev/null \
+  || die "could not hand the file to uid $APP_UID. Check cap_add (CHOWN) for ntfyMoose in docker-compose.yml"
+mv -f "$TMP" "$FILE" || die "could not move the password into place at $FILE"
+trap - EXIT INT TERM
+
+n=$(wc -c < "$FILE" | tr -d ' ')
+echo "Saved $n characters to $FILE (owner uid $APP_UID, mode 600)."
+if [ "$KEEP_SPACES" = 0 ] && [ "$n" != 16 ]; then
+  echo "Note: a Gmail app password is 16 characters. If this is one, the paste went wrong; run it again."
+fi
+echo "SMTP_PASS in .env takes priority over this file, so delete that line if it is there."
+echo "Then restart the app so it reads the password:  $RESTART"

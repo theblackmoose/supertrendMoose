@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, Integer, String, UniqueConstraint, create_engine, select,
@@ -11,6 +11,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from .config import settings
+
+
+def utcnow() -> datetime:
+    """The current UTC time as a naive datetime, as the columns store it.
+
+    A drop-in for datetime.utcnow(), which is deprecated. Deliberately naive:
+    the DateTime columns carry no zone, and the dashboard appends "Z" to the
+    stored times, so an aware value would come out as "...+00:00Z".
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):
@@ -63,7 +73,7 @@ class Signal(Base):
     atr_pct: Mapped[float] = mapped_column(Float)
     above_sma: Mapped[bool] = mapped_column(Boolean, default=False)
     notified: Mapped[bool] = mapped_column(Boolean, default=False)
-    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Position(Base):
@@ -86,7 +96,7 @@ class Position(Base):
     entry_fee: Mapped[float] = mapped_column(Float, default=0.0)
     exit_fee: Mapped[float] = mapped_column(Float, default=0.0)
     note: Mapped[str] = mapped_column(String(256), default="")
-    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     @property
     def is_open(self) -> bool:
@@ -124,7 +134,7 @@ class ScanRun(Base):
     __tablename__ = "scan_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    started: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     finished: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     tickers: Mapped[int] = mapped_column(Integer, default=0)
     failed: Mapped[int] = mapped_column(Integer, default=0)

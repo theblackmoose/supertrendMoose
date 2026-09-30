@@ -177,6 +177,8 @@ That one value sets:
 
 If the address is not one this machine has, Docker refuses to start with `cannot assign requested address`. Check the IP and try again. Only IPv4 addresses are supported.
 
+Any address other than `127.0.0.1` serves plain HTTP, so the dashboard token crosses that network unencrypted. On a home network you trust that is a reasonable trade; to encrypt it, use Tailscale Serve — see **Encrypting access (HTTPS)** in [DEPLOY.md](DEPLOY.md).
+
 To use a hostname instead (for example a Tailscale MagicDNS name), keep `HOST_IP` as the machine's IP and add `BASE_URL` and `NTFY_PUBLIC_URL` pointing at the name.
 
 ---

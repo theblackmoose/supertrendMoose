@@ -1,0 +1,18 @@
+# Opens a pull request when a pinned dependency has a newer release. CI then
+# runs the smoke test, the review checks and pip-audit on it, so a green PR is
+# safe to merge. Monthly and grouped, to keep the noise down.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      python: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directories: [/, /ntfy]
+    schedule: { interval: monthly }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }

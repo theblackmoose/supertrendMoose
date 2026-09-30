@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from . import data, market, notify, splits
 from .config import settings
-from .db import Meta, Position, ScanRun, Signal, WatchItem, get_session
+from .db import Meta, Position, ScanRun, Signal, WatchItem, get_session, utcnow
 from .indicators import compute_all, compute_cached
 from .backtest import ADX_RISE_BARS, MARKET_TICKER
 from .watchlist import ADX_ONLY, ADX_RISING, FULL, NONE, REGIME
@@ -435,7 +435,7 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True,
 
 
 def _run_scan(refresh_prices: bool, notify_on: bool, resend: bool) -> dict:
-    started = datetime.utcnow()
+    started = utcnow()
     _scan_state.update(running=True, started=started.isoformat(),
                        note="fetching prices" if refresh_prices else "evaluating")
     with get_session() as s:
@@ -511,7 +511,7 @@ def _run_scan(refresh_prices: bool, notify_on: bool, resend: bool) -> dict:
 
     with get_session() as s:
         run = s.get(ScanRun, run_id)
-        run.finished = datetime.utcnow()
+        run.finished = utcnow()
         run.tickers = len(states)
         run.failed = len(failed)
         run.buys = len(buys)
@@ -543,7 +543,7 @@ def _run_scan(refresh_prices: bool, notify_on: bool, resend: bool) -> dict:
     return {
         "tickers": len(states), "buys": buys, "exits": exits,
         "failed": failed, "notified": sent,
-        "duration_sec": (datetime.utcnow() - started).total_seconds(),
+        "duration_sec": (utcnow() - started).total_seconds(),
     }
 
 

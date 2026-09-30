@@ -5,3 +5,9 @@ echo "ntfy topic      ${NTFY_TOPIC:-SupertrendMoose}"
 echo "ntfy username   notifications"
 echo "ntfy password   $(cat /secrets/ntfy-notify.pass)"
 echo "dashboard token $(cat /secrets/api-token)"
+# Never printed: only whether it is there. Set it with moose-set-smtp-pass.
+if [ -s /secrets/smtp.pass ]; then
+  echo "smtp password   stored ($(wc -c < /secrets/smtp.pass | tr -d ' ') characters)"
+else
+  echo "smtp password   not stored (see moose-set-smtp-pass, or SMTP_PASS in .env)"
+fi
