@@ -10,7 +10,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import numpy as np
 import pandas as pd
@@ -195,6 +195,28 @@ app = FastAPI(title="SupertrendMoose", version="1.0.0", lifespan=lifespan)
 # (level 9 took 18 times as long for 20% less).
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=1)
 
+# Defence in depth for the dashboard. The page loads only its own scripts, so
+# a strict script-src costs nothing; inline style attributes are used, hence
+# 'unsafe-inline' for styles only.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    return response
+
 
 # ───────────────────────────── models ─────────────────────────────
 # Yahoo symbols: letters and digits, plus . - = (BRK-B, GC=F) and a leading ^
@@ -202,13 +224,16 @@ app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=1)
 # database or the dashboard.
 TICKER_PATTERN = r"^\^?[A-Za-z0-9][A-Za-z0-9.=\-]{0,14}$"
 Ticker = Annotated[str, Field(pattern=TICKER_PATTERN)]
+# Anything else used to be stored as-is and then treated as "none", so a typo
+# silently switched a ticker's filter off.
+Profile = Literal["full", "adx_rising", "adx_only", "regime", "none"]
 
 
 class WatchIn(BaseModel):
     ticker: Ticker
     name: str = Field("", max_length=120)
     sector: str = Field("", max_length=40)
-    profile: str = "full"
+    profile: Profile = "full"
     enabled: bool = True
     atr_len: int | None = Field(None, ge=2, le=50)
     atr_mult: float | None = Field(None, ge=0.5, le=8)
@@ -232,7 +257,7 @@ class PositionClose(BaseModel):
 
 class WatchPatch(BaseModel):
     sector: str | None = Field(None, max_length=40)
-    profile: str | None = None
+    profile: Profile | None = None
     enabled: bool | None = None
     atr_len: int | None = Field(None, ge=2, le=50)
     atr_mult: float | None = Field(None, ge=0.5, le=8)
@@ -377,9 +402,9 @@ def trade_marks(ticker: str, index: pd.DatetimeIndex, times: list[str],
 @app.get("/api/chart/{ticker}", dependencies=[Depends(auth)])
 def chart(
     ticker: str,
-    atr_len: int | None = Query(None),
-    atr_mult: float | None = Query(None),
-    adx_min: float | None = Query(None),
+    atr_len: int | None = Query(None, ge=2, le=50),
+    atr_mult: float | None = Query(None, ge=0.5, le=8),
+    adx_min: float | None = Query(None, ge=0, le=60),
     bars: int = Query(500, ge=60, le=5000),
 ) -> dict:
     """OHLC plus every indicator series, ready for Lightweight Charts."""
@@ -600,9 +625,9 @@ def backtest_ticker(
     ticker: str,
     years: float = Query(5, ge=0.25, le=20),
     bars: int | None = Query(None, ge=60, le=5000),
-    atr_len: int | None = Query(None),
-    atr_mult: float | None = Query(None),
-    adx_min: float | None = Query(None),
+    atr_len: int | None = Query(None, ge=2, le=50),
+    atr_mult: float | None = Query(None, ge=0.5, le=8),
+    adx_min: float | None = Query(None, ge=0, le=60),
 ) -> dict:
     """Compare every filter profile on one ticker, against buy-and-hold."""
     ticker = ticker.upper()
@@ -651,8 +676,12 @@ def backtest_watchlist(years: float = Query(5, ge=0.25, le=20),
         if df.empty:
             skipped.append(ticker)
             continue
+        # Every trade, not the 40 kept for display: truncating dropped the
+        # older trades of busy tickers from the pooled figures, and dropped
+        # more from the less-filtered profiles, biasing the comparison.
         res = backtest.run(df, a_len, a_mult, a_min, years, bars,
-                           earnings=data.load_earnings(ticker), market=_market_df)
+                           earnings=data.load_earnings(ticker), market=_market_df,
+                           trade_limit=None)
         if "error" in res:
             skipped.append(ticker)
             continue
@@ -669,7 +698,10 @@ def backtest_watchlist(years: float = Query(5, ge=0.25, le=20),
         "years": years,
         "tested": len(per_ticker),
         "skipped": skipped,
-        "pooled": {p: {"label": backtest.LABELS[p], "metrics": backtest.metrics(pooled[p])}
+        # Date order, so drawdown and total return walk the trades as they
+        # happened rather than ticker by ticker.
+        "pooled": {p: {"label": backtest.LABELS[p],
+                       "metrics": backtest.metrics(sorted(pooled[p], key=lambda t: t["exit_date"]))}
                    for p in backtest.PROFILES},
         "per_ticker": sorted(per_ticker, key=lambda r: r["ticker"]),
         "mismatched": [r["ticker"] for r in per_ticker if r["best"] and r["best"] != r["assigned"]],
@@ -787,7 +819,7 @@ def export_grid(years: float = Query(5, ge=1, le=20),
                 buf = io.StringIO()
                 writer = csv.writer(buf)
                 for r in result["results"]:
-                    writer.writerow([
+                    writer.writerow(_csv_safe([
                         ticker, name, sector, profile, backtest.LABELS.get(profile, profile),
                         r["atr_len"], r["atr_mult"],
                         adx_override if adx_override is not None else settings.adx_min,
@@ -801,7 +833,7 @@ def export_grid(years: float = Query(5, ge=1, le=20),
                             and r["atr_mult"] == settings.atr_mult),
                         int(result["held_up"]), int(result["underpowered"]),
                         len(earnings),
-                    ])
+                    ]))
                 yield buf.getvalue()
 
     stamp = date.today().isoformat()
@@ -867,6 +899,9 @@ def patch_watch(ticker: str, patch: WatchPatch) -> dict:
         if not item:
             raise HTTPException(404, f"{ticker.upper()} is not on the watchlist")
         for k, v in patch.model_dump(exclude_unset=True).items():
+            # null clears a per-ticker override; these three have no "unset".
+            if v is None and k in {"sector", "profile", "enabled"}:
+                raise HTTPException(422, f"{k} cannot be null")
             setattr(item, k, v)
         s.commit()
         return {"ticker": item.ticker, "profile": item.profile, "enabled": item.enabled}
@@ -892,6 +927,16 @@ def set_all_profiles(value: str = Query(..., pattern="^(full|adx_only|adx_rising
             item.profile = value
         s.commit()
         return {"profile": value, "updated": len(items)}
+
+
+def _csv_safe(row: list) -> list:
+    """Neutralise text a spreadsheet would run as a formula (=, +, -, @).
+
+    Notes are typed by you and company names come from Yahoo; either could
+    start with one of these, and Excel would evaluate it on opening.
+    """
+    return ["'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+            for v in row]
 
 
 def _net_return_pct(p: Position) -> float | None:
@@ -1175,14 +1220,14 @@ def export_trades(ticker: str | None = Query(None)) -> StreamingResponse:
         ])
         for o in rows:
             t = trades.get(o["trade_id"]) or opens.get(o["trade_id"]) or {}
-            writer.writerow([
+            writer.writerow(_csv_safe([
                 o["trade_id"], "open" if o.get("open") else "closed", o["date"],
                 o["ticker"], o["side"], o["quantity"], o["price"], o["value"],
                 o["commission"], o["hold_days"],
                 t.get("net"), t.get("net_pct"), t.get("gross"), t.get("gross_pct"),
                 t.get("entry_date"), t.get("entry_price"),
                 t.get("exit_date"), t.get("exit_price"), t.get("mark"), t.get("note", ""),
-            ])
+            ]))
         yield buf.getvalue()
 
     stamp = date.today().isoformat()
@@ -1223,6 +1268,8 @@ def manual_scan(refresh_prices: bool = True, send_alerts: bool = False,
     """send_alerts sends signals not yet alerted; resend also repeats ones that were."""
     result = scanner.run_scan(refresh_prices=refresh_prices, notify_on=send_alerts,
                               resend=resend)
+    if result.get("skipped"):
+        raise HTTPException(409, "A scan is already running. Try again when it finishes.")
     result["buys"] = [b["ticker"] for b in result["buys"]]
     result["exits"] = [e["ticker"] for e in result["exits"]]
     return result

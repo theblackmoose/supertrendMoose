@@ -112,14 +112,17 @@ def download(tickers: list[str], start: date, end: date) -> dict[str, pd.DataFra
     return out
 
 
-def store(ticker: str, df: pd.DataFrame) -> int:
-    """Replace the stored rows for the dates present in df."""
+def store(ticker: str, df: pd.DataFrame, replace_all: bool = False) -> int:
+    """Replace the stored rows for the dates present in df (or all of them)."""
     if df is None or df.empty:
         return 0
     with get_session() as s:
-        s.execute(
-            delete(Price).where(Price.ticker == ticker, Price.d >= df.index.min().date())
-        )
+        if replace_all:
+            s.execute(delete(Price).where(Price.ticker == ticker))
+        else:
+            s.execute(
+                delete(Price).where(Price.ticker == ticker, Price.d >= df.index.min().date())
+            )
         s.add_all(
             Price(
                 ticker=ticker, d=idx.date(), open=float(r.open), high=float(r.high),
@@ -129,7 +132,35 @@ def store(ticker: str, df: pd.DataFrame) -> int:
         )
         s.commit()
     invalidate(ticker)
+    if replace_all:
+        # Older bars changed under an unchanged latest bar, which the
+        # indicator cache's fingerprint cannot see.
+        from .indicators import cache_clear
+        cache_clear()
     return len(df)
+
+
+# Yahoo's auto-adjusted history is rewritten backwards after every split and
+# dividend. A top-up only re-fetches the last few days, so without this the
+# stored older bars stay on the old basis: a 4-for-1 split becomes a 75%
+# one-day "crash" that flips the Supertrend to a sell, and the position split
+# check never fires because the stored entry-day close was never adjusted.
+# The overlap between stored and fresh bars shows it: on the same days, the
+# closes should match. 0.1% catches a typical quarterly dividend.
+ADJUST_TOLERANCE = 0.001
+
+
+def _rebased(ticker: str, fresh: pd.DataFrame) -> bool:
+    """Do the re-fetched overlap bars disagree with the stored ones?"""
+    stored = _full_frame(ticker)
+    if stored.empty or fresh is None or fresh.empty:
+        return False
+    common = stored.index.intersection(fresh.index)
+    if not len(common):
+        return False
+    ratio = (fresh.loc[common, "close"].astype(float)
+             / stored.loc[common, "close"].astype(float)).median()
+    return bool(pd.notna(ratio) and abs(ratio - 1) > ADJUST_TOLERANCE)
 
 
 # Loading dominated the cost of a full scan: building one ORM object per bar,
@@ -203,10 +234,23 @@ def refresh(tickers: list[str], full: bool = False) -> tuple[int, list[str]]:
             )
         got = download(chunk, min(starts), today)
         for t in chunk:
-            if t in got:
-                written += store(t, got[t])
-            else:
+            if t not in got:
                 failed.append(t)
+            elif not full and _rebased(t, got[t]):
+                # Reload the whole stored span on the new basis. If that
+                # fails, store nothing: a top-up on a different basis from
+                # the bars before it is exactly the problem being avoided.
+                stored = _full_frame(t)
+                first = stored.index[0].date() if len(stored) else min(starts)
+                log.info("%s: Yahoo re-adjusted its history (split or dividend) - "
+                         "reloading from %s", t, first)
+                again = download([t], min(first, min(starts)), today)
+                if t in again:
+                    written += store(t, again[t], replace_all=True)
+                else:
+                    failed.append(t)
+            else:
+                written += store(t, got[t])
         time.sleep(settings.fetch_pause_sec)
 
     if failed and not written:

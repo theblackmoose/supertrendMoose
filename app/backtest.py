@@ -274,8 +274,12 @@ def run(
     bars: int | None = None,
     earnings: list | None = None,
     market: pd.DataFrame | None = None,
+    trade_limit: int | None = 40,
 ) -> dict:
     """Backtest every profile on one ticker's stored history.
+
+    trade_limit caps the trade list returned for display (newest kept). The
+    metrics always use every trade; pass None to get the full list back.
 
     Indicators are computed over the FULL history and only then sliced to the
     requested window, so the 200-day SMA is fully warmed up at the first bar
@@ -315,7 +319,7 @@ def run(
             "label": LABELS[p],
             "metrics": metrics(trades),
             "equity": equity_curve(trades, start, end),
-            "trades": trades[-40:],
+            "trades": trades if trade_limit is None else trades[-trade_limit:],
         }
 
     return {

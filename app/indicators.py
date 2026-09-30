@@ -120,25 +120,46 @@ def macd(close: pd.Series, fast: int = 12, slow: int = 26,
     return out
 
 
-def _market_closed(d) -> bool:
-    """True on the NYSE full-day holidays that can fall on a Friday.
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+    """The nth given weekday of a month (Mon=0); n=-1 is the last one."""
+    if n > 0:
+        first = date(year, month, 1)
+        return first + timedelta(days=(weekday - first.weekday()) % 7 + 7 * (n - 1))
+    nxt = date(year + (month == 12), month % 12 + 1, 1)
+    last = nxt - timedelta(days=1)
+    return last - timedelta(days=(last.weekday() - weekday) % 7)
 
-    Only Fridays matter here: they decide whether a week that ends early has
-    already closed. Thanksgiving Friday is a trading day, and a Saturday New
-    Year's Day does not close the Friday before it.
+
+def _market_closed(d) -> bool:
+    """True on the NYSE's regular full-day holidays.
+
+    Every weekday holiday matters, not only Fridays: last_completed_session()
+    uses this too, and a missing Monday holiday made the stored prices look a
+    session behind all day, so catch-up re-downloaded the watchlist hourly.
+    One-off closures (a national day of mourning, say) are not known here.
     """
     from dateutil.easter import easter
 
-    if d == easter(d.year) - timedelta(days=2):          # Good Friday
+    y = d.year
+    if d == easter(y) - timedelta(days=2):                  # Good Friday
+        return True
+    if d in (_nth_weekday(y, 1, 0, 3),                      # Martin Luther King Jr. Day
+             _nth_weekday(y, 2, 0, 3),                      # Washington's Birthday
+             _nth_weekday(y, 5, 0, -1),                     # Memorial Day
+             _nth_weekday(y, 9, 0, 1),                      # Labor Day
+             _nth_weekday(y, 11, 3, 4)):                    # Thanksgiving
         return True
     for month, day, since in ((1, 1, 0), (6, 19, 2022), (7, 4, 0), (12, 25, 0)):
-        if d.year < since:
+        if y < since:
             continue
-        fixed = date(d.year, month, day)
+        fixed = date(y, month, day)
         if d == fixed:
             return True
         # Saturday holidays are observed on the Friday, except New Year's Day.
         if fixed.weekday() == 5 and (month, day) != (1, 1) and d == fixed - timedelta(days=1):
+            return True
+        # Sunday holidays are observed on the Monday.
+        if fixed.weekday() == 6 and d == fixed + timedelta(days=1):
             return True
     return False
 

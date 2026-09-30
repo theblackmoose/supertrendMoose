@@ -7,6 +7,7 @@ profile, persist the signal and (for passing signals) notify.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date, datetime
 
 import pandas as pd
@@ -138,21 +139,23 @@ def bars_since_flip(direction) -> int:
     return count
 
 
-_market_cache: tuple[date, bool] | None = None
+_market_cache: tuple[tuple, bool] | None = None
 
 
 def market_regime_ok() -> bool:
     """Is the market index above its own long-term average right now?
 
-    Cached for the day: every ticker in a scan asks the same question, and the
-    answer only changes when new bars arrive.
+    Cached on the market data itself (bar count and latest bar), not on the
+    calendar date: a dashboard refresh before the morning scan used to fix
+    the answer for the rest of the day, so the scan judged the regime on the
+    previous session's bar.
     """
     global _market_cache
-    today = date.today()
-    if _market_cache and _market_cache[0] == today:
+    market = data.load(MARKET_TICKER)
+    key = (len(market), market.index[-1] if len(market) else None)
+    if _market_cache and _market_cache[0] == key:
         return _market_cache[1]
 
-    market = data.load(MARKET_TICKER)
     if market.empty or len(market) < settings.sma_len:
         # No market data is not the same as a bearish market; pass rather
         # than silently blocking every entry.
@@ -160,7 +163,7 @@ def market_regime_ok() -> bool:
     else:
         sma = market["close"].rolling(settings.sma_len).mean().iloc[-1]
         result = bool(pd.notna(sma) and market["close"].iloc[-1] > sma)
-    _market_cache = (today, result)
+    _market_cache = (key, result)
     return result
 
 
@@ -406,9 +409,32 @@ def current_states(atr_len: int | None = None, atr_mult: float | None = None,
     return out
 
 
+# One scan at a time. The nightly job, catch-up, start-up and the dashboard's
+# Scan now button are separate callers; without this two of them could run
+# together, both see a signal as not yet alerted, and both send it.
+_scan_lock = threading.Lock()
+
+
 def run_scan(refresh_prices: bool = True, notify_on: bool = True,
              resend: bool = False) -> dict:
-    """Full nightly scan. Returns a summary dict."""
+    """Full nightly scan. Returns a summary dict.
+
+    Returns {"skipped": True, ...} if another scan is already running.
+    """
+    if not _scan_lock.acquire(blocking=False):
+        log.info("scan requested while another is running - skipped")
+        return {"skipped": True, "tickers": 0, "buys": [], "exits": [],
+                "failed": [], "notified": {}, "duration_sec": 0.0}
+    try:
+        return _run_scan(refresh_prices, notify_on, resend)
+    finally:
+        # Always cleared, even if the scan raised. A stuck "running" flag
+        # used to disable catch-up until the container was restarted.
+        _scan_state.update(running=False, note="")
+        _scan_lock.release()
+
+
+def _run_scan(refresh_prices: bool, notify_on: bool, resend: bool) -> dict:
     started = datetime.utcnow()
     _scan_state.update(running=True, started=started.isoformat(),
                        note="fetching prices" if refresh_prices else "evaluating")
@@ -428,7 +454,13 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True,
 
     failed: list[str] = []
     if refresh_prices and tickers:
-        _, failed = data.refresh(tickers)
+        # The regime filter and the chart markers read the market index, so
+        # it is refreshed even when it is not (or no longer) on the watchlist.
+        fetch = tickers if MARKET_TICKER in tickers else [*tickers, MARKET_TICKER]
+        _, failed = data.refresh(fetch)
+        if MARKET_TICKER not in tickers and MARKET_TICKER in failed:
+            log.warning("could not refresh %s for the market regime filter", MARKET_TICKER)
+            failed.remove(MARKET_TICKER)
 
     buys, exits, blocked, states = [], [], [], []
     for item in snapshot:
@@ -467,8 +499,15 @@ def run_scan(refresh_prices: bool = True, notify_on: bool = True,
                                             scanned=len(states))
         sent = notify.send(f"SupertrendMoose: {title}", body,
                            urgent=bool(notify.held_exits(new_exits)))
-        _mark_notified([(b["ticker"], b["date"], "BUY") for b in new_buys]
-                       + [(e["ticker"], e["date"], "EXIT") for e in new_exits])
+        # Only what actually went out counts as alerted. Marking it regardless
+        # meant an alert lost to a mail outage could never be sent again, not
+        # even from Scan now once the outage was fixed.
+        if any(sent.values()):
+            _mark_notified([(b["ticker"], b["date"], "BUY") for b in new_buys]
+                           + [(e["ticker"], e["date"], "EXIT") for e in new_exits])
+        else:
+            log.error("signal alert was not delivered on any channel (%s); it will be "
+                      "sent by the next scan of this bar, e.g. Scan now", sent or "none configured")
 
     with get_session() as s:
         run = s.get(ScanRun, run_id)

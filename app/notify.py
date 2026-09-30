@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 import httpx
@@ -81,9 +82,20 @@ def _email(title: str, body: str, url: str = "", urgent: bool = False) -> bool:
     msg["From"] = settings.smtp_from or settings.smtp_user
     msg["To"] = ", ".join(settings.smtp_to)
     msg.set_content(body + (f"\n\n{url}" if url else ""))
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as sm:
-        if settings.smtp_tls:
-            sm.starttls()
+    # smtplib's starttls() does NOT verify the server certificate unless it is
+    # given a context, so without this anyone on the path could present any
+    # certificate and read the SMTP password. Port 465 is implicit TLS.
+    ctx = ssl.create_default_context()
+    if settings.smtp_port == 465:
+        server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port,
+                                  timeout=20, context=ctx)
+    else:
+        server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
+    with server as sm:
+        if settings.smtp_tls and settings.smtp_port != 465:
+            sm.starttls(context=ctx)
+        elif settings.smtp_user and settings.smtp_port != 465:
+            log.warning("SMTP_TLS is off: the SMTP password is sent unencrypted")
         if settings.smtp_user:
             sm.login(settings.smtp_user, settings.smtp_pass)
         sm.send_message(msg)

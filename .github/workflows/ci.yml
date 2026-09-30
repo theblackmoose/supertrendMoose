@@ -30,6 +30,14 @@ jobs:
       - name: Run smoke test
         run: python tests/smoke_test.py
 
+      - name: Run review regression checks
+        run: python tests/review_fixes_test.py
+
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
   build:
     name: Docker build
     runs-on: ubuntu-latest
