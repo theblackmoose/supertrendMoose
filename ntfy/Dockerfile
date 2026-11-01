@@ -1,4 +1,4 @@
-FROM binwiederhier/ntfy:v2.28.0
+FROM binwiederhier/ntfy:v2.34.0
 
 # Must be root: the bootstrap writes generated secrets into a fresh Docker
 # volume, which is created root-owned. ntfy itself runs as root in this
